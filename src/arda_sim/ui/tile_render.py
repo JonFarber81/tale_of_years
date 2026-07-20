@@ -39,10 +39,10 @@ _SPRITE_CELL: Dict[Terrain, Tuple[int, int]] = {
     Terrain.HILLS: (5, 0),    # grass base (mound motif drawn on top)
 }
 
-# Grass cell reused as the opaque base under partly-transparent overlays.
-_GRASS_CELL = (5, 0)
-# Forest = grass base + this (partly transparent) foliage sprite on top.
-_FOREST_OVERLAY_CELL = (20, 10)
+# Forest = a dense opaque green base + a tree canopy on top, so it reads as
+# thick woodland rather than spaced trees over grass.
+_FOREST_BASE_CELL = (11, 11)   # solid dark-green undergrowth
+_FOREST_CANOPY_CELL = (13, 9)  # round tree canopy
 
 # Lazily loaded spritesheet pixmap — needs a running QGuiApplication, so it is
 # only touched from paint (never at import or from the headless colour tests).
@@ -124,10 +124,11 @@ def paint_terrain_tile(
     base = terrain_color(terrain)
 
     if terrain == Terrain.FOREST:
-        # Foliage sprite is partly transparent — lay grass under it so tiles
-        # read as trees-on-grass rather than showing the layers beneath.
-        painter.drawPixmap(rect, _sheet_pixmap(), _sprite_source(_GRASS_CELL))
-        painter.drawPixmap(rect, _sheet_pixmap(), _sprite_source(_FOREST_OVERLAY_CELL))
+        # Dense green base fills the whole cell (opaque); the canopy on top gives
+        # the tree read. Base first so the canopy's transparent margins show
+        # undergrowth, not the layers beneath.
+        painter.drawPixmap(rect, _sheet_pixmap(), _sprite_source(_FOREST_BASE_CELL))
+        painter.drawPixmap(rect, _sheet_pixmap(), _sprite_source(_FOREST_CANOPY_CELL))
         return
 
     cell = _SPRITE_CELL.get(terrain)
