@@ -3,6 +3,11 @@
 Type: prototype
 Status: resolved
 
+> **⚠ Superseded by [ADR-0001](../../../docs/adr/0001-tile-substrate-and-render.md) (2026-07-20).**
+> The region/route hybrid below was retired: the world is now a **tile grid, and the
+> tile is the unit of simulation**, rendered as a DF-style tile map. Kept as the record
+> of the original exploration.
+
 ## Question
 
 What spatial model does the simulation run on, and how do we derive it from the reference maps?
