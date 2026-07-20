@@ -118,6 +118,24 @@ def _fblobs(grid: List[List[str]], blobs: Sequence[Tuple[float, float, float]], 
         _disk(grid, c, r, R(rad), ch)
 
 
+def _fblobs_where(
+    grid: List[List[str]],
+    blobs: Sequence[Tuple[float, float, float]],
+    ch: str,
+    only: str,
+) -> None:
+    """Like ``_fblobs`` but only repaints tiles currently holding ``only``."""
+    for x, y, rad in blobs:
+        c, r = P(x, y)
+        radius = R(rad)
+        for dr in range(-radius, radius + 1):
+            for dc in range(-radius, radius + 1):
+                if dc * dc + dr * dr <= radius * radius:
+                    nc, nr = c + dc, r + dr
+                    if _in_bounds(nc, nr) and grid[nr][nc] == only:
+                        grid[nr][nc] = ch
+
+
 # --------------------------------------------------------------------------
 # The coastline, as a closed land polygon (sea = everything outside it)
 # --------------------------------------------------------------------------
@@ -193,25 +211,35 @@ def _fill_sea(grid: List[List[str]]) -> None:
 # Enclosed / inland waters as fractional (x, y, radius) disks.
 SEAS: List[Tuple[float, float, float]] = [
     (0.150, 0.055, 0.032),   # Ice Bay of Forochel (far NW)
+    (0.128, 0.038, 0.026),   # ... opening the bay to Belegaer, as on the map
     (0.830, 0.400, 0.058),   # Sea of Rhûn (far east)
     (0.865, 0.445, 0.040),
     (0.725, 0.715, 0.036),   # Sea of Núrnen (inside Mordor, SE)
 ]
 
+# Islands stamped back over the sea after the coast fill.
+ISLANDS: List[Tuple[float, float, float]] = [
+    (0.495, 0.795, 0.011),   # Tolfalas, at the mouth of the Bay of Belfalas
+]
+
 LAKES: List[Tuple[float, float, float]] = [
     (0.655, 0.205, 0.020),   # Long Lake (Esgaroth / Lake-town)
     (0.235, 0.185, 0.017),   # Lake Evendim (Nenuial)
+    (0.563, 0.520, 0.013),   # Nen Hithoel, above Rauros in the Emyn Muil
 ]
 
 # Mountain ranges as brushed fractional polylines (radius sets range width).
 MOUNTAINS: List[Tuple[List[FPt], int]] = [
-    ([(0.135, 0.10), (0.145, 0.18), (0.150, 0.26), (0.150, 0.335)], 1),   # Ered Luin (Blue Mtns)
+    # Ered Luin (Blue Mtns) — two arms, cut by the Gulf of Lune as on the map.
+    ([(0.128, 0.095), (0.140, 0.165), (0.148, 0.225)], 1),               # north arm
+    ([(0.150, 0.305), (0.163, 0.355), (0.172, 0.400)], 1),               # south arm (Harlindon)
     ([(0.500, 0.11), (0.490, 0.18), (0.476, 0.26), (0.470, 0.33),
       (0.464, 0.40), (0.459, 0.47), (0.455, 0.535)], 1),                  # Hithaeglir (Misty Mtns)
-    ([(0.500, 0.11), (0.550, 0.10), (0.600, 0.105), (0.650, 0.115),
-      (0.685, 0.128)], 1),                                                # Ered Mithrin (Grey Mtns)
-    ([(0.685, 0.128), (0.720, 0.145), (0.745, 0.165)], 1),               # spur toward Withered Heath
-    ([(0.795, 0.135), (0.830, 0.155), (0.858, 0.178)], 1),               # Iron Hills
+    # Ered Mithrin (Grey Mtns) — forking east around the Withered Heath.
+    ([(0.500, 0.11), (0.550, 0.10), (0.600, 0.105), (0.640, 0.112)], 1),
+    ([(0.640, 0.112), (0.690, 0.100), (0.742, 0.102)], 1),               # north prong
+    ([(0.640, 0.112), (0.688, 0.132), (0.735, 0.150)], 1),               # south prong
+    ([(0.790, 0.148), (0.830, 0.152), (0.868, 0.158)], 1),               # Iron Hills (east-west)
     ([(0.400, 0.075), (0.448, 0.062), (0.492, 0.078)], 1),               # Mountains of Angmar
     ([(0.440, 0.055), (0.452, 0.072)], 0),                               # Carn Dûm massif
     ([(0.440, 0.55), (0.475, 0.565), (0.512, 0.576), (0.550, 0.585),
@@ -222,7 +250,21 @@ MOUNTAINS: List[Tuple[List[FPt], int]] = [
       (0.802, 0.592), (0.845, 0.606), (0.882, 0.622)], 1),              # Ered Lithui (Ash Mtns)
     ([(0.680, 0.715), (0.725, 0.740), (0.775, 0.742), (0.822, 0.720),
       (0.858, 0.680), (0.878, 0.640)], 1),                              # Mordor's southern rim (encloses Nurn)
-    ([(0.665, 0.170), (0.678, 0.185)], 0),                               # Erebor (the Lonely Mountain)
+    ([(0.655, 0.158), (0.664, 0.168)], 0),                               # Erebor (the Lonely Mountain)
+]
+
+# Named hill country as fractional disks (stamped over plains only, so they
+# never eat a mountain range, coast, or forest).
+HILLS_BLOBS: List[Tuple[float, float, float]] = [
+    (0.212, 0.162, 0.012),   # Emyn Uial (Hills of Evendim), NW of the lake
+    (0.305, 0.172, 0.014),   # North Downs (Fornost at their southern edge)
+    (0.325, 0.330, 0.013),   # South Downs
+    (0.362, 0.232, 0.011),   # Weather Hills (Weathertop at the south end)
+    (0.215, 0.272, 0.008),   # Tower Hills (Emyn Beraid), east of the Lune
+    (0.435, 0.135, 0.014),   # Ettenmoors
+    (0.552, 0.512, 0.015), (0.578, 0.518, 0.015),   # Emyn Muil, ringing Nen Hithoel
+    (0.435, 0.648, 0.012),   # Pinnath Gelin (the Green Hills)
+    (0.618, 0.632, 0.008),   # Emyn Arnen, in Ithilien
 ]
 
 # Forests as overlapping fractional disks.
@@ -242,6 +284,11 @@ FORESTS: List[Tuple[float, float, float]] = [
     (0.552, 0.585, 0.015),   # Druadan / Firien Wood
 ]
 
+# Clearings carved back out of forest (stamped after forests, forest-only).
+CLEARINGS: List[Tuple[float, float, float]] = [
+    (0.690, 0.298, 0.032),   # the East Bight, bitten out of Mirkwood's east edge
+]
+
 MARSHES: List[Tuple[float, float, float]] = [
     (0.585, 0.545, 0.026),   # Dead Marshes / Nindalf (Wetwang)
     (0.330, 0.420, 0.020),   # Nîn-in-Eilph (Swanfleet), by Tharbad
@@ -251,7 +298,7 @@ MARSHES: List[Tuple[float, float, float]] = [
 BARRENS: List[Tuple[float, float, float]] = [
     (0.688, 0.615, 0.036), (0.712, 0.622, 0.030),   # Plateau of Gorgoroth (inner Mordor)
     (0.628, 0.552, 0.020),                          # Dagorlad (Battle Plain)
-    (0.588, 0.472, 0.024), (0.602, 0.500, 0.020),   # Brown Lands (east bank of Anduin)
+    (0.588, 0.462, 0.022), (0.600, 0.485, 0.018),   # Brown Lands, north of the Emyn Muil
     (0.820, 0.630, 0.030),                          # Lithlad (ash plain, east of Mordor)
     (0.580, 0.845, 0.048), (0.622, 0.905, 0.050),   # South Gondor / Near Harad — desert
     (0.548, 0.920, 0.040),
@@ -259,10 +306,13 @@ BARRENS: List[Tuple[float, float, float]] = [
 
 # Rivers as single-tile fractional polylines (drawn late so they cut through land).
 RIVERS: List[List[FPt]] = [
-    # Anduin, the Great River — the spine of the theatre.
+    # Anduin, the Great River — the spine of the theatre. Through Nen Hithoel
+    # and over Rauros, past Cair Andros and Osgiliath, then swinging south-west
+    # past Pelargir to the Ethir.
     [(0.500, 0.120), (0.512, 0.200), (0.525, 0.280), (0.536, 0.340),
-     (0.545, 0.400), (0.552, 0.460), (0.557, 0.510), (0.560, 0.536),
-     (0.550, 0.575), (0.535, 0.615), (0.520, 0.655), (0.510, 0.695),
+     (0.545, 0.400), (0.552, 0.460), (0.557, 0.505), (0.563, 0.520),
+     (0.570, 0.545), (0.582, 0.562), (0.594, 0.578), (0.602, 0.596),
+     (0.602, 0.625), (0.588, 0.652), (0.550, 0.680), (0.520, 0.703),
      (0.505, 0.728)],
     # Gwathló (Greyflood), fed by Glanduin, out at Lond Daer.
     [(0.440, 0.400), (0.385, 0.420), (0.330, 0.432), (0.262, 0.452),
@@ -270,7 +320,7 @@ RIVERS: List[List[FPt]] = [
     # Mitheithel (Hoarwell), from the Ettenmoors south to the Gwathló.
     [(0.440, 0.160), (0.440, 0.245), (0.436, 0.325), (0.440, 0.400)],
     # Bruinen (Loudwater), from Rivendell to the Gwathló.
-    [(0.478, 0.245), (0.462, 0.305), (0.450, 0.362), (0.440, 0.400)],
+    [(0.470, 0.242), (0.462, 0.305), (0.450, 0.362), (0.440, 0.400)],
     # Isen (Angren), from the Gap of Rohan to the sea.
     [(0.455, 0.532), (0.418, 0.552), (0.368, 0.577), (0.308, 0.602),
      (0.258, 0.616)],
@@ -288,16 +338,24 @@ RIVERS: List[List[FPt]] = [
     [(0.836, 0.162), (0.812, 0.262), (0.782, 0.340), (0.752, 0.386)],
     # Celebrant (Silverlode), from the Misty Mtns through Lórien to Anduin.
     [(0.470, 0.400), (0.508, 0.420), (0.540, 0.432), (0.556, 0.462)],
-    # Entwash, from the White Mountains to the marshes at Anduin.
-    [(0.500, 0.585), (0.525, 0.555), (0.556, 0.542)],
+    # Entwash, from the White Mountains to its mouths at Anduin below Rauros.
+    [(0.500, 0.585), (0.525, 0.555), (0.556, 0.545), (0.570, 0.548)],
     # Limlight, from Fangorn's eaves to the Anduin.
     [(0.490, 0.500), (0.522, 0.490), (0.552, 0.485)],
-    # Morthond / Gilrain, Gondor's coastal rivers into the bay.
+    # Morthond (Blackroot), from the Dwimorberg vale down to Edhellond.
     [(0.470, 0.618), (0.462, 0.668), (0.466, 0.706)],
-    # Poros, Gondor's border with the South.
-    [(0.630, 0.680), (0.590, 0.710), (0.548, 0.734)],
-    # Harnen, the frontier of Near Harad.
-    [(0.660, 0.850), (0.618, 0.872), (0.578, 0.886)],
+    # Gilrain, through Lamedon and Linhir to the bay.
+    [(0.508, 0.618), (0.500, 0.666), (0.492, 0.710)],
+    # Erui, out of Lossarnach across Lebennin to Anduin above Pelargir.
+    [(0.532, 0.612), (0.540, 0.648), (0.549, 0.676)],
+    # Lefnui, from the western White Mountains along Anfalas to the sea.
+    [(0.428, 0.590), (0.402, 0.648), (0.375, 0.700)],
+    # Poros, Gondor's border with the South, joining Anduin above the delta.
+    [(0.630, 0.680), (0.588, 0.696), (0.528, 0.703)],
+    # Harnen, the frontier of Near Harad, west to the sea.
+    [(0.660, 0.850), (0.618, 0.872), (0.578, 0.886), (0.516, 0.900)],
+    # Forest River, from the Grey Mountains through north Mirkwood to Long Lake.
+    [(0.605, 0.135), (0.632, 0.168), (0.648, 0.190), (0.655, 0.205)],
 ]
 
 # Roads as single-tile fractional polylines (over land, under sites).
@@ -305,8 +363,8 @@ ROADS: List[List[FPt]] = [
     # Great East Road: Grey Havens -> Bree -> Rivendell -> High Pass -> Old
     # Forest Road across Mirkwood.
     [(0.190, 0.272), (0.245, 0.298), (0.310, 0.300), (0.380, 0.290),
-     (0.440, 0.262), (0.478, 0.245), (0.505, 0.232), (0.552, 0.238),
-     (0.605, 0.245), (0.660, 0.242)],
+     (0.440, 0.262), (0.470, 0.242), (0.482, 0.238), (0.505, 0.232),
+     (0.552, 0.238), (0.605, 0.245), (0.660, 0.242)],
     # Greenway (North-South Road): Fornost -> Bree -> Tharbad -> Isengard.
     [(0.300, 0.200), (0.308, 0.252), (0.310, 0.300), (0.320, 0.362),
      (0.330, 0.432), (0.385, 0.482), (0.440, 0.528)],
@@ -344,27 +402,31 @@ SITES: List[Tuple[float, float, str, str]] = [
     (0.255, 0.302, "town", "Michel Delving"),
     (0.300, 0.200, "ruin", "Fornost"),
     (0.245, 0.185, "ruin", "Annúminas"),
-    (0.150, 0.278, "ruin", "Emyn Beraid"),
+    (0.215, 0.272, "ruin", "Emyn Beraid"),
     (0.190, 0.272, "city", "Grey Havens"),
     (0.365, 0.255, "ruin", "Weathertop"),
     (0.330, 0.432, "ruin", "Tharbad"),
     (0.155, 0.478, "ruin", "Lond Daer"),
-    (0.478, 0.245, "city", "Rivendell"),
+    (0.470, 0.242, "city", "Rivendell"),
     (0.448, 0.070, "ruin", "Carn Dûm"),
+    (0.500, 0.104, "fort", "Mount Gundabad"),
+    (0.482, 0.238, "pass", "High Pass"),
+    (0.466, 0.398, "pass", "Redhorn Pass"),
     # -- Rhovanion / Wilderland --
     (0.535, 0.430, "city", "Caras Galadhon"),
     (0.470, 0.410, "ruin", "Moria"),
-    (0.555, 0.280, "town", "Carrock"),
+    (0.558, 0.505, "ruin", "Argonath"),
+    (0.525, 0.280, "town", "Carrock"),
     (0.620, 0.400, "fort", "Dol Guldur"),
-    (0.640, 0.175, "city", "Thranduil's Halls"),
-    (0.655, 0.205, "town", "Esgaroth"),
-    (0.665, 0.162, "town", "Dale"),
-    (0.678, 0.178, "fort", "Erebor"),
+    (0.618, 0.172, "city", "Thranduil's Halls"),
+    (0.643, 0.200, "town", "Esgaroth"),
+    (0.658, 0.180, "town", "Dale"),
+    (0.660, 0.163, "fort", "Erebor"),
     # -- Mordor --
     (0.710, 0.625, "fort", "Barad-dûr"),
     (0.685, 0.620, "volcano", "Mount Doom"),
     (0.636, 0.565, "gate", "The Morannon"),
-    (0.626, 0.610, "fort", "Cirith Ungol"),
+    (0.633, 0.606, "pass", "Cirith Ungol"),
     (0.652, 0.600, "fort", "Durthang"),
     (0.685, 0.672, "town", "Nurn"),
 ]
@@ -392,7 +454,7 @@ REGION_SEEDS: List[Tuple[float, float, str]] = [
     # Rhovanion / Wilderland
     (0.560, 0.340, "Wilderland"), (0.618, 0.280, "Mirkwood"), (0.535, 0.430, "Lórien"),
     (0.492, 0.510, "Fangorn"), (0.545, 0.300, "Vales of Anduin"), (0.592, 0.490, "Brown Lands"),
-    (0.665, 0.160, "Dale"), (0.678, 0.185, "Erebor"), (0.640, 0.195, "Woodland Realm"),
+    (0.658, 0.180, "Dale"), (0.660, 0.160, "Erebor"), (0.628, 0.190, "Woodland Realm"),
     (0.850, 0.380, "Rhûn"), (0.700, 0.310, "East Bight"), (0.520, 0.490, "The Wold"),
     (0.700, 0.115, "Withered Heath"), (0.832, 0.160, "Iron Hills"),
     (0.600, 0.115, "Grey Mountains"),
@@ -425,10 +487,13 @@ def build_terrain() -> List[List[str]]:
     g = _blank()
     _fill_sea(g)
     _fblobs(g, SEAS, SEA)
+    _fblobs(g, ISLANDS, LAND)
     for fpts, radius in MOUNTAINS:
         _fpolyline(g, fpts, MOUNTAIN, radius)
     _hill_skirts(g)  # ring each massif in hills for a legible, passable skirt
+    _fblobs_where(g, HILLS_BLOBS, HILLS, only=LAND)
     _fblobs(g, FORESTS, FOREST)
+    _fblobs_where(g, CLEARINGS, LAND, only=FOREST)
     _fblobs(g, MARSHES, MARSH)
     _fblobs(g, BARRENS, BARREN)
     _fblobs(g, LAKES, LAKE)
