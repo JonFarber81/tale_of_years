@@ -1,0 +1,144 @@
+"""UI shell smoke tests — run offscreen (no display needed).
+
+These exercise construction and the sim-thread -> UI wiring at a light level;
+the map/annals rendering itself is verified manually (see the ticket). The
+Qt-independent behaviour lives in test_playback.py / test_annals is below.
+"""
+
+import os
+import subprocess
+import sys
+
+import pytest
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+pytest.importorskip("PySide6")
+
+
+def _qt_platform_usable() -> bool:
+    """Whether a Qt platform can actually be initialized here.
+
+    Creating a ``QApplication`` with a broken/absent platform plugin calls
+    ``qFatal`` → ``abort()``, which crashes the interpreter uncatchably. We can't
+    guard that in-process, so probe in a throwaway subprocess: if it can't stand
+    up a ``QApplication``, skip the UI tests rather than aborting the whole suite
+    (headless CI, or a corrupted local Qt install).
+    """
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", "from PySide6.QtWidgets import QApplication; QApplication([])"],
+            env=os.environ,
+            capture_output=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+if not _qt_platform_usable():
+    pytest.skip(
+        "no usable Qt platform plugin (headless or broken PySide6 install)",
+        allow_module_level=True,
+    )
+
+from PySide6.QtWidgets import QApplication  # noqa: E402
+
+from arda_sim import START_YEAR  # noqa: E402
+from arda_sim.entities import Event  # noqa: E402
+from arda_sim.ui.annals_model import AnnalsModel, render_event  # noqa: E402
+from arda_sim.ui.app import build_window  # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    app = QApplication.instance() or QApplication([])
+    yield app
+
+
+def _event(year, type_="tick"):
+    return Event(id=year, year=year, type=type_)
+
+
+def test_annals_model_appends_and_renders(qapp):
+    model = AnnalsModel()
+    model.append_events([_event(START_YEAR), _event(START_YEAR + 1)])
+    assert model.rowCount() == 2
+    idx = model.index(0)
+    assert f"TA {START_YEAR}" in model.data(idx)
+
+
+def test_annals_cap_hides_later_years(qapp):
+    model = AnnalsModel()
+    model.append_events([_event(y) for y in range(START_YEAR, START_YEAR + 10)])
+    model.set_cap_year(START_YEAR + 3)
+    assert model.rowCount() == 4  # years START_YEAR..START_YEAR+3
+    model.set_cap_year(None)
+    assert model.rowCount() == 10
+
+
+def test_render_event_uses_prose_text_when_present():
+    ev = Event(id=1, year=3019, type="battle", text="the host of Rohan came at last")
+    assert render_event(ev) == "TA 3019: the host of Rohan came at last"
+
+
+def test_window_builds_and_starts_at_seed_year(qapp):
+    window = build_window("fellowship")
+    try:
+        assert window._year_label.text() == f"TA {START_YEAR}"
+        assert not window._scrub.isEnabled()  # nothing simulated yet
+    finally:
+        window.close()
+
+
+def test_year_advance_updates_label_and_annals(qapp):
+    window = build_window("fellowship")
+    try:
+        # Drive the worker's logic directly (synchronously) rather than through
+        # the thread, so the smoke test is deterministic and display-free.
+        snapshot, events = window._playback.advance_year()
+        window._on_frontier_changed(window._playback.frontier)
+        window._on_year_advanced(snapshot, events)
+        assert window._year_label.text() == f"TA {START_YEAR}"
+        assert window._annals_model.rowCount() == 1
+        assert window._scrub.isEnabled()
+        assert window._scrub.maximum() == START_YEAR
+    finally:
+        window.close()
+
+
+def test_worker_thread_advances_via_real_signals(qapp):
+    from PySide6.QtCore import QEventLoop, QTimer
+
+    window = build_window("fellowship")
+    years = []
+    window._worker.yearAdvanced.connect(lambda snap, _evs: years.append(snap.year))
+    try:
+        window.speedChanged.emit(60.0)  # fast
+        window.playRequested.emit()
+        loop = QEventLoop()
+        QTimer.singleShot(600, loop.quit)  # let the worker thread run a while
+        loop.exec()
+    finally:
+        window.close()
+    assert len(years) >= 3  # the background thread genuinely advanced
+    assert years == sorted(years)  # in order, no gaps backwards
+
+
+def test_scrub_restore_caps_annals_without_new_events(qapp):
+    window = build_window("fellowship")
+    try:
+        # simulate a few years
+        for snap, evs in window._playback.fast_forward_to(START_YEAR + 5):
+            window._on_frontier_changed(window._playback.frontier)
+            window._on_year_advanced(snap, evs)
+        assert window._annals_model.rowCount() == 6
+
+        # scrub back to START_YEAR+2: restore snapshot, cap annals, no new events
+        snapshot = window._playback.restore(START_YEAR + 2)
+        window._on_year_advanced(snapshot, [])
+        assert window._year_label.text() == f"TA {START_YEAR + 2}"
+        assert window._annals_model.rowCount() == 3  # years +0.. +2
+    finally:
+        window.close()
