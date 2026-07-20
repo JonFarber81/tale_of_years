@@ -8,7 +8,7 @@ and the annals cap. The window renders only from snapshots — never the live wo
 
 from __future__ import annotations
 
-from typing import List
+from typing import Dict, List, Optional
 
 from PySide6.QtCore import QMetaObject, Qt, QThread, Signal
 from PySide6.QtWidgets import (
@@ -26,6 +26,7 @@ from .. import START_YEAR
 from ..entities import Event
 from ..playback import Playback
 from ..snapshot import Snapshot
+from ..tiles import UNOWNED, TileGrid
 from .annals_model import AnnalsModel
 from .map_view import MapView
 from .sim_worker import SimWorker
@@ -45,16 +46,25 @@ class MainWindow(QMainWindow):
     speedChanged = Signal(float)
     seekRequested = Signal(int)
 
-    def __init__(self, playback: Playback, parent=None) -> None:
+    def __init__(
+        self,
+        playback: Playback,
+        grid: TileGrid,
+        faction_names: Optional[Dict[int, str]] = None,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self._playback = playback
+        self._grid = grid
+        self._faction_names = faction_names or {}
         self._syncing_slider = False
         # The frontier as last reported by the worker (never read cross-thread
         # from the worker-owned Playback). Nothing simulated yet.
         self._frontier = START_YEAR - 1
         self.setWindowTitle("arda_history — the Third Age unfolds")
 
-        self._map = MapView(self)
+        self._map = MapView(grid, self)
+        self._map.tileClicked.connect(self._on_tile_clicked)
         self.setCentralWidget(self._map)
         self._build_toolbar()
         self._annals_model = AnnalsModel(self)
@@ -148,6 +158,33 @@ class MainWindow(QMainWindow):
         if not self._scrub.isEnabled():
             self._scrub.setEnabled(True)
         self._scrub.setMaximum(frontier)
+
+    # -- map -> inspection ----------------------------------------------
+
+    def _on_tile_clicked(self, col: int, row: int) -> None:
+        self._inspection_label.setText(self.describe_tile(col, row))
+
+    def describe_tile(self, col: int, row: int) -> str:
+        """Human-readable summary of a tile for the inspection dock."""
+        grid = self._grid
+        terrain = grid.terrain_at(col, row)
+        owner = grid.owner_at(col, row)
+        region = grid.region_at(col, row)
+        owner_label = (
+            "unowned"
+            if owner == UNOWNED
+            else self._faction_names.get(owner, f"faction {owner}")
+        )
+        lines = [
+            f"Tile ({col}, {row})",
+            f"Terrain: {terrain}",
+            f"Owner: {owner_label}",
+            f"Region: {region.name if region else '—'}",
+        ]
+        for site in grid.sites:
+            if site.col == col and site.row == row:
+                lines.append(f"Site: {site.name} ({site.kind})")
+        return "\n".join(lines)
 
     # -- UI -> worker ----------------------------------------------------
 
