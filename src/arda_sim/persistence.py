@@ -15,7 +15,8 @@ from dataclasses import asdict
 from typing import Any, Dict
 
 from . import RNG_FAMILY, SCHEMA_VERSION, __version__
-from .entities import Entity, Event
+from . import characters as _characters  # noqa: F401  (registers the Character type)
+from .entities import Event, entity_from_dict
 from .rng import state_from_jsonable, state_to_jsonable
 from .world import RunConfig, World
 
@@ -90,7 +91,7 @@ def from_dict(data: Dict[str, Any]) -> World:
         id_counter=state["id_counter"],
     )
     for e in state["entities"]:
-        entity = Entity(**e)
+        entity = entity_from_dict(e)
         world.entities[entity.id] = entity
     world.events = [Event(**ev) for ev in state["events"]]
     world.rng.setstate(state_from_jsonable(state["rng_state"]))

@@ -15,6 +15,7 @@ from __future__ import annotations
 import random
 from typing import Callable, List, Tuple
 
+from .characters import aging_births_deaths as _aging_births_deaths  # phase 1
 from .entities import Event
 from .world import World
 
@@ -22,10 +23,6 @@ System = Callable[[World, random.Random], List[Event]]
 
 # Placeholder event type emitted once per tick until systems produce real events.
 HEARTBEAT_EVENT_TYPE = "tick"
-
-
-def _aging_births_deaths(world: World, rng: random.Random) -> List[Event]:  # phase 1
-    return []
 
 
 def _faction_decisions(world: World, rng: random.Random) -> List[Event]:  # phase 2

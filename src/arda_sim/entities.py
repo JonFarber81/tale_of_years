@@ -7,9 +7,9 @@ serializes directly to JSON.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Type
 
 
 class EntityStatus(str, Enum):
@@ -40,6 +40,28 @@ class Entity:
     name: str
     created_year: int
     status: str = EntityStatus.ACTIVE.value
+
+
+# Registry of entity ``kind`` -> dataclass, so a saved entity rehydrates as the
+# right subtype (a Character carries fields the base Entity lacks). Subtypes
+# register themselves on import; unknown kinds fall back to the base Entity.
+ENTITY_TYPES: Dict[str, Type[Entity]] = {}
+
+
+def register_entity_type(kind: str, cls: Type[Entity]) -> None:
+    """Register ``cls`` as the concrete type for entities of this ``kind``."""
+    ENTITY_TYPES[kind] = cls
+
+
+def entity_from_dict(data: Dict[str, Any]) -> Entity:
+    """Rehydrate an entity dict to its registered subtype (or the base Entity).
+
+    Only keys matching the target dataclass's fields are passed, so a save made
+    by newer code with extra fields still loads into older code (forward-lenient).
+    """
+    cls = ENTITY_TYPES.get(data.get("kind", ""), Entity)
+    allowed = {f.name for f in fields(cls)}
+    return cls(**{k: v for k, v in data.items() if k in allowed})
 
 
 @dataclass

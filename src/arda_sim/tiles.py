@@ -76,12 +76,18 @@ class Region:
 
 @dataclass(frozen=True)
 class Site:
-    """A named place anchored to a tile (settlement, fortress, ruin)."""
+    """A named place anchored to a tile (settlement, fortress, ruin).
+
+    ``id`` is a deterministic config-space id (assigned by sorted name in
+    :func:`load_grid`), distinct from the entity id space — it is the stable
+    handle a character's ``location_id`` points at, mirroring how region ids work.
+    """
 
     name: str
     col: int
     row: int
     kind: str
+    id: int = 0
 
 
 @dataclass
@@ -100,6 +106,20 @@ class TileGrid:
     sites: List[Site] = field(default_factory=list)  # config
     miles_per_tile: int = 15
     owner: List[int] = field(default_factory=list)  # STATE: faction id per tile
+
+    def site_id_of(self, name: str) -> Optional[int]:
+        """The config-space id of the site with this name, or None if absent."""
+        for site in self.sites:
+            if site.name == name:
+                return site.id
+        return None
+
+    def site_by_id(self, site_id: int) -> Optional[Site]:
+        """The site with this config-space id, or None."""
+        for site in self.sites:
+            if site.id == site_id:
+                return site
+        return None
 
     def __post_init__(self) -> None:
         n = self.width * self.height
@@ -216,8 +236,12 @@ def load_grid(scenario: Dict) -> TileGrid:
     _check_grid(region_rows, width, height, "regions")
     region_of = [char_to_id.get(ch, UNOWNED) for row in region_rows for ch in row]
 
+    # Deterministic site ids: sorted site names -> 1, 2, 3, ... (config-space,
+    # like region ids), so a character's location_id is stable across processes.
+    site_ids = {name: i for i, name in enumerate(sorted(s["name"] for s in scenario.get("sites", [])), start=1)}
     sites = [
-        Site(s["name"], s["col"], s["row"], s["kind"]) for s in scenario.get("sites", [])
+        Site(s["name"], s["col"], s["row"], s["kind"], site_ids[s["name"]])
+        for s in scenario.get("sites", [])
     ]
 
     return TileGrid(
