@@ -1,0 +1,134 @@
+{
+ "description": "Traced Gondor/Anduin slice — stub dataset for the tile substrate (ADR-0001).",
+ "height": 28,
+ "miles_per_tile": 15,
+ "name": "gondor_stub",
+ "region_legend": {
+  "G": "Gondor",
+  "I": "Ithilien",
+  "M": "Mordor"
+ },
+ "regions": [
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIMMMMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIMMMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIMMMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIMMMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIMMMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIMMMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIMMMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIMMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIMMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIMMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIMMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIMMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIMMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIMMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIIMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIMMMMM",
+  "GGGGGGGGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIMMMMM",
+  "........GGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIIMMMM",
+  "........GGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIMMMM",
+  "........GGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIIMMMM",
+  "........GGGGGGGGGGGGGGGGGGGGGGIIIIIIIIIIMMMM",
+  ".............GGGGGGGGGGGGGGGGGGIIIIIIIIIMMMM",
+  ".............GGGGGGGGGGGGGGGGGGGIIIIIIIIMMMM",
+  "............................................",
+  "............................................"
+ ],
+ "sites": [
+  {
+   "col": 17,
+   "kind": "city",
+   "name": "Minas Tirith",
+   "row": 11
+  },
+  {
+   "col": 25,
+   "kind": "ruin",
+   "name": "Osgiliath",
+   "row": 11
+  },
+  {
+   "col": 27,
+   "kind": "fort",
+   "name": "Cair Andros",
+   "row": 6
+  },
+  {
+   "col": 37,
+   "kind": "fort",
+   "name": "Minas Morgul",
+   "row": 14
+  },
+  {
+   "col": 30,
+   "kind": "town",
+   "name": "Pelargir",
+   "row": 22
+  },
+  {
+   "col": 5,
+   "kind": "city",
+   "name": "Dol Amroth",
+   "row": 22
+  },
+  {
+   "col": 13,
+   "kind": "town",
+   "name": "Linhir",
+   "row": 24
+  },
+  {
+   "col": 34,
+   "kind": "town",
+   "name": "Henneth Annûn",
+   "row": 16
+  }
+ ],
+ "terrain": [
+  ".............................r..............",
+  "............................rr..............",
+  "...........^^^^^^^^^^^^.....rr..............",
+  "hhhhh^^^^^^^^^^^^^^^^^^^^^^rrhhhhh..........",
+  "h^^^^^^^^^^^^^^^^^^^^^^^^^^rr^^^hhh..^^bbbbb",
+  "^^^^^^^^^^^^^^^hhhhh^^^^^^^r^^^^^^hhf^^^bbbb",
+  "^^^^^^^^hhhhhhhhhhhhhhhhhhrr^^^^^^hhf^^^bbbb",
+  "^^^^hhhhhhhffff........hhhrrhh^^^^hhf.^^bbbb",
+  "hhhhhh.....ffff...........rhhhhhhhhff.^^bbbb",
+  "hh.........ffff..........rrffffhhhffff^^bbbb",
+  "...........ffff..........rrfffffffffff^^bbbb",
+  ".........................r.fffffffffff^^^bbb",
+  ".........................rrfffffffffff^^^bbb",
+  ".........................rrfffffffffff^^^bbb",
+  ".........................rrfffffffffff.^^bbb",
+  ".........................rrfffffffffff.^^bbb",
+  "..........................r.fffffffffff^^bbb",
+  "..........................rrfffffffffff^^^bb",
+  "..........................rrfffffffffff^^^bb",
+  "...........................rrffffffffff^^^bb",
+  "~~~~~~~~...................rrffffffffff.^^bb",
+  "~~~~~~~~....................rrfffffffff.^^bb",
+  "~~~~~~~~.................mmmrrmmm.......^^bb",
+  "~~~~~~~~..................mmmrrmmm......^^bb",
+  "~~~~~~~~~~~~~..............mmmrrmmm.....^^^b",
+  "~~~~~~~~~~~~~...............mmrrrmm.....^^^b",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+  "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+ ],
+ "terrain_legend": {
+  ".": "plains",
+  "=": "road",
+  "^": "mountain",
+  "b": "barren",
+  "f": "forest",
+  "h": "hills",
+  "l": "lake",
+  "m": "marsh",
+  "r": "river",
+  "~": "sea"
+ },
+ "width": 44
+}

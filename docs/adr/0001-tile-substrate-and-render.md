@@ -49,6 +49,12 @@ simulation.**
   faction territory is a per-tile owner tint over the terrain.
 - **Coordinates:** tile `(col, row)`; the authored terrain grid is fixed config.
   A one-time calibration maps tiles to v7 pixels for tracing only.
+- **Map labels** (render layer): site names (settlements/fortresses) and area
+  names (region labels) render as **engine-drawn text items over the tiles** —
+  zoom-aware level-of-detail (areas when zoomed out, sites when zoomed in),
+  toggle-able/filterable, with a halo for legibility over any terrain. They are
+  **data-driven** (from each site's/region's `name`), never baked into terrain,
+  so they update as history renames/razes/founds places. *(ticket 11)*
 
 ## Consequences
 
