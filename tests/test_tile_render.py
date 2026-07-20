@@ -124,11 +124,11 @@ def test_refresh_owners_reflects_owner_changes(qapp):
 def test_inspection_describes_clicked_tile(qapp):
     window = build_window("fellowship")
     try:
-        # Osgiliath: authored site at (25, 11), inside the Gondor-owned block.
-        text = window.describe_tile(25, 11)
-        assert "Tile (25, 11)" in text
+        # Minas Tirith: authored site at (52, 62), inside the Gondor-owned block.
+        text = window.describe_tile(52, 62)
+        assert "Tile (52, 62)" in text
         assert "Owner: Gondor" in text
-        assert "Osgiliath" in text
+        assert "Minas Tirith" in text
     finally:
         window.close()
 

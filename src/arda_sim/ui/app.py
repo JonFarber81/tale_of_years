@@ -8,39 +8,48 @@ from __future__ import annotations
 
 import argparse
 import sys
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtWidgets import QApplication
 
 from ..playback import Playback
 from ..scenarios import load_scenario
 from ..tiles import TileGrid
+from ..validate import check_grid
 from ..world import World
 from .mainwindow import MainWindow
 
-# The stub scenario the tile substrate is proven against (ADR-0001 / ticket 03).
-_STUB_SCENARIO = "gondor_stub"
+# The full War-of-the-Ring theatre (ADR-0001 / build ticket 04). The Gondor
+# slice (gondor_stub) remains on file as the substrate's first proving ground.
+_SCENARIO = "arda_ta2965"
+
+# Which region labels each demo faction holds, until ticket 06 lands real
+# factions. Gondor and its provinces vs. Mordor and its — a long shared frontier.
+_DEMO_FACTIONS: Dict[int, Tuple[str, List[str]]] = {
+    1: ("Gondor", ["Gondor", "Anórien", "Ithilien", "Lebennin", "Belfalas",
+                   "Lamedon", "Anfalas", "Emyn Arnen"]),
+    2: ("Mordor", ["Mordor", "Gorgoroth", "Nurn", "Udûn", "Dagorlad"]),
+}
 
 
 def _seed_demo_territory(grid: TileGrid) -> Dict[int, str]:
-    """Tint a couple of faction-owned blocks over the stub so the renderer has
-    territory (and a derived frontier) to draw before ticket 06 lands real
-    factions. Ownership is assigned from region labels: Gondor+Ithilien held by
-    faction 1, Mordor by faction 2 — leaving a Gondor/Mordor border.
+    """Tint faction-owned regions over the map so the renderer has territory (and
+    a derived frontier) to draw before ticket 06 lands real factions.
     """
     by_name = {r.name: r.id for r in grid.regions.values()}
-    region_owner = {
-        by_name.get("Gondor"): 1,
-        by_name.get("Ithilien"): 1,
-        by_name.get("Mordor"): 2,
-    }
+    region_owner: Dict[int, int] = {}
+    for faction_id, (_, region_names) in _DEMO_FACTIONS.items():
+        for name in region_names:
+            rid = by_name.get(name)
+            if rid:
+                region_owner[rid] = faction_id
     for row in range(grid.height):
         for col in range(grid.width):
             rid = grid.region_of[grid.index(col, row)]
             owner = region_owner.get(rid)
             if owner:
                 grid.set_owner(col, row, owner)
-    return {1: "Gondor", 2: "Mordor"}
+    return {fid: label for fid, (label, _) in _DEMO_FACTIONS.items()}
 
 
 def build_window(seed: str, canonicity: float = 1.0) -> MainWindow:
@@ -50,7 +59,8 @@ def build_window(seed: str, canonicity: float = 1.0) -> MainWindow:
     tests without entering the event loop.
     """
     playback = Playback(World.new_run(seed, canonicity=canonicity))
-    grid = load_scenario(_STUB_SCENARIO)
+    grid = load_scenario(_SCENARIO)
+    check_grid(grid)  # fail loudly if the authored substrate is malformed
     faction_names = _seed_demo_territory(grid)
     return MainWindow(playback, grid, faction_names)
 
