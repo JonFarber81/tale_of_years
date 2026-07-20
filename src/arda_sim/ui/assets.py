@@ -12,11 +12,28 @@ from pathlib import Path
 
 V7_MAP_FILENAME = "Middle Earth v7.jpg"
 
+# The Kenney roguelike/RPG pack (CC0), bundled for terrain sprites (ADR-0001).
+TILESET_RELPATH = (
+    "tilesets/kenney_roguelike-rpg/Spritesheet/roguelikeSheet_transparent.png"
+)
+
 
 def references_dir() -> Path:
     """The repo-root ``references/`` directory (editable-install layout)."""
     # this file: src/arda_sim/ui/assets.py -> parents[3] is the repo root.
     return Path(__file__).resolve().parents[3] / "references"
+
+
+def tileset_path() -> Path:
+    """Absolute path to the Kenney roguelike spritesheet.
+
+    Raises ``FileNotFoundError`` with a clear message if the asset is missing,
+    so a mis-packaged build fails loudly rather than rendering blank tiles.
+    """
+    path = references_dir() / TILESET_RELPATH
+    if not path.is_file():
+        raise FileNotFoundError(f"tileset spritesheet not found at {path}")
+    return path
 
 
 def v7_map_path() -> Path:

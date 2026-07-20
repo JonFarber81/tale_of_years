@@ -1,24 +1,66 @@
-"""The tile theme: terrain colours, faction tints, and per-tile painting.
+"""The tile theme: terrain sprites, faction tints, and per-tile painting.
 
-Renders the :class:`~arda_sim.tiles.TileGrid` in the Dwarf-Fortress idiom —
-each tile is a solid terrain colour with a small distinguishing motif, and
-faction territory is a translucent owner tint painted over the terrain (ADR-0001).
+Renders the :class:`~arda_sim.tiles.TileGrid` as a tile map (ADR-0001): each
+terrain draws a **Kenney roguelike/RPG sprite** (CC0, bundled under
+``references/tilesets/``) scaled to the cell; terrains the pack lacks
+(mountain, hills, marsh) fall back to a flat colour plus a distinguishing
+motif. Faction territory is a translucent owner tint over the terrain.
 
 This is the render *theme* seam: the geometry (which tile, where) lives in the
-view; the look (colour, motif) lives here. A sprite atlas (the Kenney pack the
-ADR names) can later replace :func:`paint_terrain_tile` without touching the
-view. Colour lookups are Qt-only (no ``QApplication`` needed), so they stay
-unit-testable headlessly.
+view; the look (sprite, colour, motif) lives here. Sprite pixmaps load lazily on
+first paint, so the colour helpers stay unit-testable headlessly (no
+``QApplication``); only :func:`paint_terrain_tile` touches the spritesheet.
 """
 
 from __future__ import annotations
 
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 from PySide6.QtCore import QRectF
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QPainter, QPixmap
 
 from ..tiles import Terrain
+
+# Spritesheet geometry: 16px tiles with a 1px margin (see the pack's
+# spritesheetInfo.txt), so tile (col, row) starts at (col*17, row*17).
+_SPRITE_PX = 16
+_SPRITE_STRIDE = 17
+
+# Terrain -> spritesheet cell (col, row). Terrains absent here (mountain, hills,
+# marsh) have no fitting sprite in the pack and render procedurally instead.
+_SPRITE_CELL: Dict[Terrain, Tuple[int, int]] = {
+    Terrain.PLAINS: (5, 0),   # grass
+    Terrain.BARREN: (6, 0),   # bare dirt
+    Terrain.ROAD: (7, 2),     # cobbled path
+    Terrain.SEA: (0, 0),      # water
+    Terrain.LAKE: (0, 0),     # water
+    Terrain.RIVER: (0, 0),    # water
+    Terrain.MOUNTAIN: (7, 0),  # grey stone base (peak motif drawn on top)
+    Terrain.HILLS: (5, 0),    # grass base (mound motif drawn on top)
+}
+
+# Grass cell reused as the opaque base under partly-transparent overlays.
+_GRASS_CELL = (5, 0)
+# Forest = grass base + this (partly transparent) foliage sprite on top.
+_FOREST_OVERLAY_CELL = (20, 10)
+
+# Lazily loaded spritesheet pixmap — needs a running QGuiApplication, so it is
+# only touched from paint (never at import or from the headless colour tests).
+_sheet: Optional[QPixmap] = None
+
+
+def _sheet_pixmap() -> QPixmap:
+    global _sheet
+    if _sheet is None:
+        from .assets import tileset_path
+
+        _sheet = QPixmap(str(tileset_path()))
+    return _sheet
+
+
+def _sprite_source(cell: Tuple[int, int]) -> QRectF:
+    col, row = cell
+    return QRectF(col * _SPRITE_STRIDE, row * _SPRITE_STRIDE, _SPRITE_PX, _SPRITE_PX)
 
 # Base terrain colours (DF-style flat fills). Chosen to read at a glance and to
 # stay distinct from every faction tint below.
@@ -74,41 +116,39 @@ def paint_terrain_tile(
 ) -> None:
     """Paint one terrain tile at ``(x, y)`` with side ``size`` in scene units.
 
-    Draws the flat base fill plus a light per-terrain motif so terrains stay
-    legible without relying on colour alone (mountains get a peak, forests a
-    tree, water a ripple, etc.).
+    Draws the terrain's Kenney sprite scaled into the cell where one exists;
+    otherwise a flat fill. Mountain and hills add a motif over their stone/grass
+    base (the pack has no summit sprite); marsh renders fully procedurally.
     """
     rect = QRectF(x, y, size, size)
     base = terrain_color(terrain)
-    painter.fillRect(rect, base)
-    painter.setPen(base.darker(125))
+
+    if terrain == Terrain.FOREST:
+        # Foliage sprite is partly transparent — lay grass under it so tiles
+        # read as trees-on-grass rather than showing the layers beneath.
+        painter.drawPixmap(rect, _sheet_pixmap(), _sprite_source(_GRASS_CELL))
+        painter.drawPixmap(rect, _sheet_pixmap(), _sprite_source(_FOREST_OVERLAY_CELL))
+        return
+
+    cell = _SPRITE_CELL.get(terrain)
+    if cell is not None:
+        painter.drawPixmap(rect, _sheet_pixmap(), _sprite_source(cell))
+    else:
+        painter.fillRect(rect, base)
 
     if terrain == Terrain.MOUNTAIN:
-        peak = base.lighter(135)
-        painter.setBrush(peak)
-        painter.drawPolygon(
-            _triangle(x + size * 0.5, y + size * 0.18, size * 0.34),
-        )
+        painter.setPen(base.darker(150))
+        painter.setBrush(base.lighter(150))
+        painter.drawPolygon(_triangle(x + size * 0.5, y + size * 0.18, size * 0.34))
     elif terrain == Terrain.HILLS:
-        painter.setBrush(base.lighter(115))
-        painter.drawEllipse(QRectF(x + size * 0.2, y + size * 0.4, size * 0.6, size * 0.5))
-    elif terrain == Terrain.FOREST:
-        painter.setBrush(base.darker(130))
-        painter.drawPolygon(
-            _triangle(x + size * 0.5, y + size * 0.2, size * 0.3),
-        )
-    elif terrain in (Terrain.RIVER, Terrain.LAKE, Terrain.SEA):
-        painter.setPen(base.lighter(130))
-        mid = y + size * 0.5
-        painter.drawLine(int(x + size * 0.2), int(mid), int(x + size * 0.8), int(mid))
+        painter.setPen(QColor(70, 90, 50))
+        painter.setBrush(base.darker(115))
+        painter.drawEllipse(QRectF(x + size * 0.22, y + size * 0.42, size * 0.56, size * 0.46))
     elif terrain == Terrain.MARSH:
         painter.setPen(base.darker(140))
         for frac in (0.35, 0.6):
             yy = int(y + size * frac)
             painter.drawLine(int(x + size * 0.2), yy, int(x + size * 0.8), yy)
-    elif terrain == Terrain.ROAD:
-        painter.setPen(base.darker(135))
-        painter.drawLine(int(x + size * 0.5), int(y), int(x + size * 0.5), int(y + size))
 
 
 def _triangle(cx: float, top_y: float, half: float):
