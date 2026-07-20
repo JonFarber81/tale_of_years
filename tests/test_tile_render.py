@@ -76,6 +76,15 @@ def qapp():
     yield app
 
 
+def test_tileset_sprite_sheet_loads(qapp):
+    from arda_sim.ui.assets import tileset_path
+    from arda_sim.ui.tile_render import _sheet_pixmap
+
+    assert tileset_path().is_file()
+    sheet = _sheet_pixmap()
+    assert not sheet.isNull()  # the bundled Kenney sheet actually decoded
+
+
 def test_map_view_lays_scene_out_in_tile_pixels(qapp):
     grid = load_scenario("gondor_stub")
     view = MapView(grid)
