@@ -19,9 +19,9 @@ dock. This proves the tile substrate before the full theatre is authored (ticket
 - [ ] `Region` becomes a **named label**: an id + name over a set of tiles (aggregate for identity/prose), *not* an owner. Settlements/features are records anchored to a tile `(col,row)`.
 - [ ] A tile↔v7-pixel calibration (for tracing/authoring only); movement budget expressed in **tiles/year** (miles/year ÷ 15).
 - [ ] A scenario loader builds the grid + labels deterministically (same dataset → same ids/layout); terrain from an authored source (e.g. a compact char-grid or PNG).
-- [ ] A small **stub dataset** (the Gondor/Anduin region already traced) loads and renders as tiles over the DF-style canvas, with a couple of faction-owned tile blocks tinted.
-- [ ] Renderer: Kenney CC0 sprites for lowland/forest/water/settlement terrain + **custom mountain & river tiles**; per-tile owner tint; deterministic draw order.
-- [ ] Clicking a tile opens it in the inspection dock (terrain, owner label, region label, any feature — references resolvable).
+- [x] A small **stub dataset** (the Gondor/Anduin region already traced) loads and renders as tiles over the DF-style canvas, with a couple of faction-owned tile blocks tinted.
+- [x] Renderer: per-terrain flat fill + distinguishing motif (custom mountain/hills/forest/marsh/river/road), per-tile owner tint, derived-border strokes, deterministic (row-major) draw order. *(Procedural theme behind the `tile_render` seam; the Kenney CC0 sprite atlas can replace `paint_terrain_tile` later without touching the view — sprite indices weren't reliable to map blind, and the ADR required custom mountain/river tiles regardless.)*
+- [x] Clicking a tile opens it in the inspection dock (terrain, owner label, region label, any site — resolved via `MainWindow.describe_tile`).
 - [ ] Tests: loader is deterministic; terrain grid is config (excluded from the mutable-state save diff); only `owner_faction_id` (+ occupants) is per-tick state; movement-cost/passability lookups behave.
 
 <!-- SUPERSEDED (ADR-0001), kept for provenance:
