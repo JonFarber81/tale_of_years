@@ -21,8 +21,9 @@ def grid():
 
 
 def test_theatre_dimensions(grid):
-    # ~100x130 ≈ 13k tiles at 15 mi/tile (ADR-0001).
-    assert (grid.width, grid.height) == (100, 125)
+    # Landscape frame matching the canonical map's ~1.32:1 aspect; ~13k tiles at
+    # 15 mi/tile (ADR-0001).
+    assert (grid.width, grid.height) == (132, 100)
     assert len(grid.terrain) == grid.width * grid.height
     assert grid.miles_per_tile == 15
 

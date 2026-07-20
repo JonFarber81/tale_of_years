@@ -31,7 +31,8 @@ spatial history. That trade reverses ticket 01's rationale.
 simulation.**
 
 - **Scale:** ~**15 miles per tile**, giving the War-of-the-Ring theatre roughly
-  **~100 × 130 ≈ 13,000 tiles**. Strategic scale, not DF embark scale.
+  **~132 × 100 ≈ 13,000 tiles** (a landscape frame matching the canonical
+  end-of-Third-Age map's ~1.32:1 aspect). Strategic scale, not DF embark scale.
 - **Per-tile state:** static `terrain` (config) + mutable `owner_faction_id`
   (the authoritative territory state) + optional occupant/feature references
   (settlement id, army positions layered on top).
