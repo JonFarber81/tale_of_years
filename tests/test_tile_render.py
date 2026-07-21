@@ -205,6 +205,33 @@ def test_seeded_factions_paint_territory_with_a_frontier(qapp):
         window.close()
 
 
+@pytest.mark.parametrize("terrain", [Terrain.MOUNTAIN, Terrain.HILLS, Terrain.MARSH])
+def test_procedural_terrain_is_deterministic_per_tile(qapp, terrain):
+    # The three procedural-fallback terrains (map-visuals 05) seed their per-tile
+    # variation from the tile's (col, row), never a paint-time RNG — so painting
+    # the same tile twice must yield byte-identical images.
+    from PySide6.QtGui import QPainter, QPixmap
+
+    from arda_sim.ui.map_view import TILE
+    from arda_sim.ui.tile_render import paint_terrain_tile
+
+    def render(col, row):
+        pix = QPixmap(TILE, TILE)
+        pix.fill()
+        p = QPainter(pix)
+        paint_terrain_tile(p, terrain, col * TILE, row * TILE, TILE)
+        p.end()
+        return pix.toImage()
+
+    # Same tile, two independent paints -> byte-identical (no RNG at paint time).
+    assert render(3, 7) == render(3, 7)
+    assert render(3, 7).constBits() == render(3, 7).constBits()
+    # The (col, row) seed actually perturbs the motif: a spread of tiles yields
+    # more than one distinct render (not a constant, un-varied stamp).
+    variants = {render(c, r).constBits() for c in range(6) for r in range(6)}
+    assert len(variants) > 1
+
+
 def test_refresh_armies_draws_one_marker_per_living_host(qapp):
     # A host marker (map-visuals 03) is a colour disc + people sprite per living
     # army; disbanded hosts draw nothing, and the layer rebuilds wholesale.
@@ -226,5 +253,31 @@ def test_refresh_armies_draws_one_marker_per_living_host(qapp):
         # Redrawing replaces rather than accumulates.
         window._map.refresh_armies(armies[:1])
         assert len(window._map._army_items) == 1
+    finally:
+        window.close()
+
+
+def test_marching_host_adds_a_direction_cue(qapp):
+    # A host mid-march (non-empty path) draws its marker plus a direction cue,
+    # so it yields MORE scene items than the same host idle (empty path); an
+    # idle/garrisoned host adds no cue (map-visuals 06).
+    from arda_sim.armies import Army
+    from arda_sim.entities import EntityStatus
+
+    window = build_window("fellowship")
+    try:
+        idle = Army(id=90101, kind="army", name="Garrison", created_year=2965,
+                    faction_id=1, col=5, row=5, size=500,
+                    status=EntityStatus.ACTIVE.value, path=[])
+        window._map.refresh_armies([idle])
+        idle_items = len(window._map._army_items)
+        assert idle_items == 1  # marker only, no cue
+
+        marching = Army(id=90101, kind="army", name="Garrison", created_year=2965,
+                        faction_id=1, col=5, row=5, size=500,
+                        status=EntityStatus.ACTIVE.value, path=[[6, 5], [7, 5]])
+        window._map.refresh_armies([marching])
+        assert len(window._map._army_items) > idle_items  # marker + cue
+        assert len(window._map._army_items) == idle_items + 1  # exactly one cue
     finally:
         window.close()
