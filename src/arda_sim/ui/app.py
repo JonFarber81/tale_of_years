@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtWidgets import QApplication
 
+from ..characters import new_seeded_run
 from ..playback import Playback
 from ..scenarios import load_scenario
 from ..tiles import TileGrid
@@ -52,13 +53,25 @@ def _seed_demo_territory(grid: TileGrid) -> Dict[int, str]:
     return {fid: label for fid, (label, _) in _DEMO_FACTIONS.items()}
 
 
-def build_window(seed: str, canonicity: float = 1.0) -> MainWindow:
+def build_window(
+    seed: str, canonicity: float = 1.0, *, seed_characters: bool = True
+) -> MainWindow:
     """Construct (but do not show) the main window for a fresh run.
 
     Split out from ``main`` so it can be exercised headlessly (offscreen) in
     tests without entering the event loop.
+
+    The run is seeded with the canon TA 2965 roster (ticket 05) so there is life
+    to chronicle from year one — births and deaths stream into the Annals as
+    prose and pulse on the map (ticket 06); without it the feed would carry only
+    invisible heartbeats. ``seed_characters=False`` starts an empty world, which
+    wiring smoke tests use so their per-year event counts don't hinge on the
+    roster's lifecycle RNG.
     """
-    playback = Playback(World.new_run(seed, canonicity=canonicity))
+    world = new_seeded_run(seed, canonicity=canonicity) if seed_characters else World.new_run(
+        seed, canonicity=canonicity
+    )
+    playback = Playback(world)
     grid = load_scenario(_SCENARIO)
     check_grid(grid)  # fail loudly if the authored substrate is malformed
     faction_names = _seed_demo_territory(grid)

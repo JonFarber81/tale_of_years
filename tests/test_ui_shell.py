@@ -107,7 +107,7 @@ def test_window_builds_and_starts_at_seed_year(qapp):
 
 
 def test_year_advance_updates_label_and_annals(qapp):
-    window = build_window("fellowship")
+    window = build_window("fellowship", seed_characters=False)  # heartbeat-only
     try:
         # Drive the worker's logic directly (synchronously) rather than through
         # the thread, so the smoke test is deterministic and display-free.
@@ -161,6 +161,21 @@ def test_show_all_toolbar_toggle_switches_the_feed(qapp):
         window.close()
 
 
+def test_seeded_window_streams_visible_prose_into_the_annals(qapp):
+    # The shipped app seeds the roster, so playing it a while fills the
+    # important-only feed with real chronicle prose (not just heartbeats).
+    window = build_window("fellowship")  # roster seeded by default
+    try:
+        for snap, evs in window._playback.fast_forward_to(START_YEAR + 20):
+            window._on_frontier_changed(window._playback.frontier)
+            window._on_year_advanced(snap, evs)
+        assert window._annals_model.rowCount() > 0  # important events are shown
+        first = window._annals_model.data(window._annals_model.index(0))
+        assert first.startswith("TA ") and "[" not in first  # rendered prose
+    finally:
+        window.close()
+
+
 def test_above_threshold_located_events_fire_a_map_pulse(qapp):
     window = build_window("fellowship")
     pulsed = []
@@ -179,7 +194,7 @@ def test_above_threshold_located_events_fire_a_map_pulse(qapp):
 
 
 def test_scrub_restore_caps_annals_without_new_events(qapp):
-    window = build_window("fellowship")
+    window = build_window("fellowship", seed_characters=False)  # heartbeat-only
     try:
         window._annals_model.show_all()  # heartbeats are unimportant; test the cap
         # simulate a few years
