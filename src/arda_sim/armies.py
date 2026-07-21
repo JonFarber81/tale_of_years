@@ -297,7 +297,11 @@ def _raise_army(
     subjects = [army.id, faction.id]
     if leader is not None:
         subjects.append(leader.id)
-    payload: Dict[str, object] = {"size": army.size, "faction_id": faction.id}
+    payload: Dict[str, object] = {
+        "size": army.size,
+        "faction_id": faction.id,
+        "led": leader is not None,
+    }
     if army.target_faction_id is not None:
         payload["target_faction_id"] = army.target_faction_id
     return world.new_event(
