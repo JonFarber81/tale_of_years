@@ -435,8 +435,11 @@ def test_movement_is_a_no_op_without_a_grid():
 # -- integration: seeded run, determinism, persistence, snapshots ---------
 
 def test_armies_muster_and_march_over_a_seeded_run():
+    # Musters follow war, and war is now gated by the rising Shadow (ADR-0012): a
+    # run opens in peace and hosts take the field only once the West wakes to
+    # Mordor, in the War-of-the-Ring window — so this run must reach that far.
     world, _grid, _ = seed_world("campaign")
-    events = run_years(world, 10)
+    events = run_years(world, 45)
     kinds = {e.type for e in events}
     assert ARMY_MUSTERED_EVENT in kinds
     assert armies(world)  # hosts exist on the map
@@ -457,8 +460,9 @@ def test_movement_is_deterministic_under_seed():
 
 
 def test_army_state_round_trips_through_save_load():
+    # Long enough to reach the (now Shadow-gated) wars that put a host on the map.
     world, _grid, _ = seed_world("army-save")
-    run_years(world, 8)
+    run_years(world, 45)
     blob = dumps(world)
     reloaded = loads(blob)
     assert dumps(reloaded) == blob  # position, path, size, leader all round-trip

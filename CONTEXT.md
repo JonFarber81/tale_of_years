@@ -39,6 +39,22 @@ explicitly undone.
 
 **At-war** — the symmetric formal state of war between two factions. Declared and
 ended by the diplomacy phase; the *fighting* is executed by the war phase.
+Hostility does not raise it on its own — the leap from stance to flag is gated by
+**provocation** and **readiness**.
+
+**Provocation** — what a hostile faction needs before its dislike becomes a
+*declared* war. Disposition is a **ceiling, not a trigger**: a low disposition
+sets how far a pair *could* fall, but war is only declared when the disliked
+faction is actually threatening — it has been belligerent lately, or (for the
+dark realm) its `sauron_strength` has crossed a **visibility threshold** so the
+West perceives the rising Shadow. A dormant, weak neighbour provokes no one
+however old the enmity, so a quiet realm is left in peace to grow — the reason
+TA 2965 opens with no one marching on Mordor.
+
+**Readiness** — the second gate on declaring war: a faction opens a *new* war
+only when it can prosecute one (not already at war on another front, past its
+cooldown). Together with provocation this staggers declarations across years
+rather than firing a whole ring of them the moment a run begins.
 
 **Vassalage** — a *directional* overlord→vassal bond. A vassal musters for its
 overlord yet keeps its own succession and dormant claim and can break free. This

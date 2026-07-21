@@ -476,7 +476,11 @@ def _provider_factor(faction: Faction) -> int:
 
 
 def fortification(site: Site) -> int:
-    """The siege resistance of a seat, by its kind (unknown kinds get a modest wall)."""
+    """The siege resistance of a seat: its authored per-seat ``fortification`` if
+    set (a static defensive stat — Barad-dûr resists worthy of the Black Gate,
+    ADR-0012), else the wall its ``kind`` implies (unknown kinds get a modest one)."""
+    if site.fortification > 0:
+        return site.fortification
     return _FORTIFICATION.get(site.kind, _FORT_DEFAULT)
 
 

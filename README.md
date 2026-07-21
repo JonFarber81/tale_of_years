@@ -58,15 +58,30 @@ contract):
 | 3 · faction decisions | each power scores a weighted-utility intent menu (muster / attack / fortify / seek-pact / build) | ✅ built |
 | 4 · diplomacy & vassalage | disposition drifts toward a frozen canon baseline; treaties, marriages, vassalage, provider-pacts; the war flag | ✅ built |
 | 5 · movement | armies march tile-to-tile under attrition and supply lag | ✅ built |
-| 6 · war & battles | field battles, sieges, conquest, razing, provider hosts, coastal raids | ✅ built |
-| 7 · construction & economy | income to a treasury; founding, growing, and roads where there is peace | ✅ built |
-| 8 · Sauron's rise | the shadow lengthens; canon pressure responds to the One Ring | 🔜 planned |
+| 6 · the Nazgûl hunt | the Nine move toward the Ring's scent; the capture attempt resolves in the Ring phase | ✅ built |
+| 7 · war & battles | field battles, sieges, conquest, razing, provider hosts, coastal raids | ✅ built |
+| 8 · construction & economy | income to a treasury; founding, growing, and roads where there is peace | ✅ built |
+| 9 · the One Ring | a single tracked artifact under the XOR invariant; corruption, pull, transfers, and its terminal outcomes | ✅ built |
+| 10 · Sauron's rise | the shadow lengthens; a canon-pressure scalar bends musters, providers, and the Nine toward the War of the Ring | ✅ built |
+
+The **One Ring** is a single bespoke record, seeded quietly borne by Bilbo,
+always somewhere definite (the *XOR invariant*: it is carried by exactly one
+character **or** lies at exactly one site, never both, never neither). It moves by
+a closed set of canonicity-weighted transfer modes (inheritance, gift, theft,
+loss, being found, capture in war, or a deliberate errand), carries a per-bearer
+`corruption` that attenuates but never resets across hands and a global `pull`
+that spikes on use and decays, and can reach its **terminal outcomes** — destroyed
+in an active Orodruin (the Nine unmade, Sauron broken), reclaimed by the Dark
+Lord, or left lying lost. **Sauron's rise** recomputes a `sauron_strength` scalar
+each month from a canon baseline weighted by the canonicity knob plus emergent
+deltas; consumed by the *next* tick, it scales Mordor's musters, provider
+commitment, and the **nine named Nazgûl** who hunt while Sauron and the Ring
+endure.
 
 Also built: the **tile substrate** and the authored **TA 2965 scenario dataset**
 (regions, sites, routes for NW Middle-earth), the **PySide6/Qt UI shell** (map
 canvas, play/pause/step/scrub timeline, interactive annals feed, inspection
-dock), and **save / load** with exact RNG resume. Still to come: the **One Ring**
-as a tracked object, and packaging.
+dock), and **save / load** with exact RNG resume. Still to come: packaging.
 
 ---
 
@@ -115,7 +130,7 @@ arda-sim --load run.json --years 50                        # resume, bit-identic
 
 ```bash
 pip install -e ".[dev]"
-pytest            # ~250 tests; the whole sim is exercised headless
+pytest            # ~330 tests; the whole sim is exercised headless
 ```
 
 Determinism is a first-class, tested property: runs are compared for
@@ -141,6 +156,8 @@ src/arda_sim/
   armies.py         hosts: muster, march, attrition, supply lag
   war.py            battles, sieges, conquest, razing, providers, raids
   economy.py        treasury income; founding, growing, roads
+  ring.py           the One Ring — one tracked artifact, XOR invariant, transfers
+  sauron.py         Sauron's rise: canon-pressure scalar + the nine Nazgûl
   chronicle.py      salience scoring + prose rendering + the annals feed
   scenarios/        the authored TA 2965 dataset
   ui/               PySide6/Qt shell (map, timeline, annals, inspection)
@@ -156,7 +173,10 @@ The reasoning behind the model lives with the code:
 - **[`CONTEXT.md`](CONTEXT.md)** — the glossary / ubiquitous language (faction,
   disposition, stance, vassalage, succession, salience, …).
 - **[`docs/adr/`](docs/adr/)** — architecture decision records, e.g. tiles as the
-  substrate, one faction record switched by `kind`, the monthly-tick clock, and
-  disposition decaying toward a frozen canon baseline.
+  substrate, one faction record switched by `kind`, the monthly-tick clock,
+  disposition decaying toward a frozen canon baseline, the One Ring as a single
+  artifact under an XOR invariant, canon pressure as soft weighting only, a
+  corrupt bearer falling to the Shadow, and war gated by provocation and
+  readiness rather than raised on a hostile disposition alone.
 - **[`.scratch/arda-history-v1/spec.md`](.scratch/arda-history-v1/spec.md)** — the
   full v1 design blueprint and the build tickets it decomposes into.
