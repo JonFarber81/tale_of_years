@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from typing import Dict, Optional, Tuple
 
-from PySide6.QtCore import QRectF
-from PySide6.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap, QPolygonF
 
 from ..tiles import Terrain
 
@@ -35,8 +35,6 @@ _SPRITE_CELL: Dict[Terrain, Tuple[int, int]] = {
     Terrain.SEA: (0, 0),      # water
     Terrain.LAKE: (0, 0),     # water
     Terrain.RIVER: (0, 0),    # water
-    Terrain.MOUNTAIN: (7, 0),  # grey stone base (peak motif drawn on top)
-    Terrain.HILLS: (5, 0),    # grass base (mound motif drawn on top)
 }
 
 # Forest = a dense opaque green base + a tree canopy on top, so it reads as
@@ -169,11 +167,13 @@ def paint_terrain_tile(
     """Paint one terrain tile at ``(x, y)`` with side ``size`` in scene units.
 
     Draws the terrain's Kenney sprite scaled into the cell where one exists;
-    otherwise a flat fill. Mountain and hills add a motif over their stone/grass
-    base (the pack has no summit sprite); marsh renders fully procedurally.
+    otherwise a flat fill. Mountain, hills, and marsh have no fitting sprite in
+    the pack, so they render as procedural motifs (:func:`_paint_mountain`,
+    :func:`_paint_hills`, :func:`_paint_marsh`) with per-tile deterministic
+    variation seeded from the tile's ``(col, row)`` — never a paint-time RNG, so
+    a tile always renders identically.
     """
     rect = QRectF(x, y, size, size)
-    base = terrain_color(terrain)
 
     if terrain == Terrain.FOREST:
         # Dense green base fills the whole cell (opaque); the canopy on top gives
@@ -183,35 +183,157 @@ def paint_terrain_tile(
         painter.drawPixmap(rect, _sheet_pixmap(), _sprite_source(_FOREST_CANOPY_CELL))
         return
 
+    if terrain in (Terrain.MOUNTAIN, Terrain.HILLS, Terrain.MARSH):
+        # ``x, y`` are scene pixels (col*size, row*size), so the integer cell
+        # coords recover the tile identity to seed its variation.
+        col, row = int(x / size), int(y / size)
+        painter.save()
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        if terrain == Terrain.MOUNTAIN:
+            _paint_mountain(painter, x, y, size, col, row)
+        elif terrain == Terrain.HILLS:
+            _paint_hills(painter, x, y, size, col, row)
+        else:
+            _paint_marsh(painter, x, y, size, col, row)
+        painter.restore()
+        return
+
     cell = _SPRITE_CELL.get(terrain)
     if cell is not None:
         painter.drawPixmap(rect, _sheet_pixmap(), _sprite_source(cell))
     else:
-        painter.fillRect(rect, base)
-
-    if terrain == Terrain.MOUNTAIN:
-        painter.setPen(base.darker(150))
-        painter.setBrush(base.lighter(150))
-        painter.drawPolygon(_triangle(x + size * 0.5, y + size * 0.18, size * 0.34))
-    elif terrain == Terrain.HILLS:
-        painter.setPen(QColor(70, 90, 50))
-        painter.setBrush(base.darker(115))
-        painter.drawEllipse(QRectF(x + size * 0.22, y + size * 0.42, size * 0.56, size * 0.46))
-    elif terrain == Terrain.MARSH:
-        painter.setPen(base.darker(140))
-        for frac in (0.35, 0.6):
-            yy = int(y + size * frac)
-            painter.drawLine(int(x + size * 0.2), yy, int(x + size * 0.8), yy)
+        painter.fillRect(rect, terrain_color(terrain))
 
 
-def _triangle(cx: float, top_y: float, half: float):
-    from PySide6.QtCore import QPointF
-    from PySide6.QtGui import QPolygonF
+def _tile_hash(col: int, row: int) -> int:
+    """A cheap, stable hash of a tile's ``(col, row)`` for deterministic variation.
 
-    return QPolygonF(
-        [
-            QPointF(cx, top_y),
-            QPointF(cx - half, top_y + half * 1.8),
-            QPointF(cx + half, top_y + half * 1.8),
-        ]
+    Same seed as the spatial hashing used elsewhere in tile renderers — reproducible
+    across runs and sessions, and decorrelated between neighbours so adjacent tiles
+    don't share the same offsets.
+    """
+    return ((col * 73856093) ^ (row * 19349663)) & 0x7FFFFFFF
+
+
+def _paint_mountain(
+    painter: QPainter, x: float, y: float, s: float, col: int, row: int
+) -> None:
+    """A filled peak that fills the cell, so contiguous mountain tiles merge into a
+    legible range at full-map zoom (the Misty Mountains test). Peak offset and
+    height vary per tile; a snow cap and a lit/shadow split give it crag."""
+    h = _tile_hash(col, row)
+    # Rock massif fills the whole tile — neighbours abut into a solid range.
+    painter.fillRect(QRectF(x, y, s, s), QColor(120, 116, 116))
+
+    dx = ((h >> 3) % 7 - 3) / 10.0 * s          # main peak shifts +/-0.3s
+    peak_h = 0.66 + ((h >> 6) % 4) * 0.06        # summit rises 0.66..0.84 of tile
+    apex_x = x + 0.5 * s + dx
+    apex_y = y + (1.0 - peak_h) * s
+    base_y = y + s
+    apex = QPointF(apex_x, apex_y)
+
+    painter.setPen(Qt.NoPen)
+    # Shadow (whole peak), then the sunlit left face over it.
+    painter.setBrush(QColor(92, 88, 92))
+    painter.drawPolygon(QPolygonF([apex, QPointF(x + s, base_y), QPointF(x, base_y)]))
+    painter.setBrush(QColor(150, 148, 152))
+    painter.drawPolygon(QPolygonF([apex, QPointF(x, base_y), QPointF(apex_x, base_y)]))
+
+    # A secondary lower peak to one side breaks the tiling monotony.
+    side = 1 if (h >> 4) & 1 else -1
+    sec_x = apex_x + side * 0.34 * s
+    sec_y = y + (0.42 + ((h >> 9) % 3) * 0.05) * s
+    painter.setBrush(QColor(108, 104, 108))
+    painter.drawPolygon(
+        QPolygonF(
+            [
+                QPointF(sec_x, sec_y),
+                QPointF(sec_x + 0.3 * s, base_y),
+                QPointF(sec_x - 0.3 * s, base_y),
+            ]
+        )
     )
+
+    # Snow cap: a jagged white wedge sitting just below the summit.
+    cap_y = apex_y + 0.24 * s
+    painter.setBrush(QColor(240, 242, 246))
+    painter.drawPolygon(
+        QPolygonF(
+            [
+                apex,
+                QPointF(apex_x + 0.16 * s, cap_y),
+                QPointF(apex_x + 0.04 * s, cap_y - 0.06 * s),
+                QPointF(apex_x - 0.06 * s, cap_y),
+                QPointF(apex_x - 0.16 * s, cap_y - 0.03 * s),
+            ]
+        )
+    )
+    # Ridge outline for a crisp summit at any zoom.
+    painter.setBrush(Qt.NoBrush)
+    painter.setPen(QPen(QColor(66, 62, 66), max(1.0, s * 0.045)))
+    painter.drawPolyline(QPolygonF([QPointF(x, base_y), apex, QPointF(x + s, base_y)]))
+
+
+def _paint_hills(
+    painter: QPainter, x: float, y: float, s: float, col: int, row: int
+) -> None:
+    """Two rounded, flat-bottomed mounds (a back rise and a nearer one) with a top
+    highlight, so the tile reads as rolling downland rather than a floating dot.
+    Mound width and placement vary per tile."""
+    h = _tile_hash(col, row)
+    painter.fillRect(QRectF(x, y, s, s), QColor(150, 158, 96))
+    painter.setPen(QPen(QColor(96, 112, 58), max(1.0, s * 0.04)))
+
+    # Back mound: smaller, higher, lighter (reads as further away).
+    bx = x + (0.06 + ((h >> 3) % 3) * 0.08) * s
+    bw, bh = 0.5 * s, 0.34 * s
+    b_base = y + (0.66 + ((h >> 5) % 3) * 0.05) * s
+    painter.setBrush(QColor(160, 170, 104))
+    painter.drawChord(QRectF(bx, b_base - bh, bw, bh * 2), 0, 180 * 16)
+
+    # Front mound: wider, lower, darker, offset the other way.
+    fx = x + (0.34 + ((h >> 8) % 3) * 0.07) * s
+    fw, fh = 0.6 * s, 0.4 * s
+    f_base = y + (0.82 + ((h >> 10) % 2) * 0.06) * s
+    painter.setBrush(QColor(134, 150, 84))
+    painter.drawChord(QRectF(fx, f_base - fh, fw, fh * 2), 0, 180 * 16)
+    # Sunlit crown on the front mound.
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(QColor(174, 184, 116))
+    painter.drawChord(
+        QRectF(fx + 0.1 * fw, f_base - fh, fw * 0.55, fh * 1.5), 30 * 16, 130 * 16
+    )
+
+
+def _paint_marsh(
+    painter: QPainter, x: float, y: float, s: float, col: int, row: int
+) -> None:
+    """Murky ground with dark standing-water pools and reed tufts at seeded
+    positions — a wet, tufted read rather than a flat fill with two lines."""
+    h = _tile_hash(col, row)
+    painter.fillRect(QRectF(x, y, s, s), QColor(92, 116, 92))
+
+    # A couple of standing-water pools with a paler sheen.
+    painter.setPen(Qt.NoPen)
+    for i in range(2):
+        hh = h >> (i * 6)
+        pw = (0.34 + (hh % 3) * 0.06) * s
+        ph = pw * 0.6
+        px = x + ((hh >> 2) % 5) / 6.0 * s
+        py = y + (0.2 + ((hh >> 4) % 4) / 8.0) * s
+        painter.setBrush(QColor(66, 94, 96))
+        painter.drawEllipse(QRectF(px, py, pw, ph))
+        painter.setBrush(QColor(120, 150, 148, 130))
+        painter.drawEllipse(QRectF(px + pw * 0.2, py + ph * 0.15, pw * 0.4, ph * 0.3))
+
+    # Reed tufts: a small fan of stems rising from a seeded base point.
+    painter.setPen(QPen(QColor(156, 164, 100), max(1.0, s * 0.05)))
+    for i in range(3):
+        hh = h >> (i * 5 + 1)
+        tx = x + (0.15 + (hh % 6) / 8.0) * s
+        ty = y + (0.55 + ((hh >> 3) % 4) / 10.0) * s
+        for dxf in (-0.06, 0.0, 0.06):
+            painter.drawLine(
+                QPointF(tx, ty),
+                QPointF(tx + dxf * s, ty - (0.22 + (dxf != 0) * -0.04) * s),
+            )

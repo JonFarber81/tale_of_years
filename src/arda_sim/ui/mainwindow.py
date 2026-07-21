@@ -32,7 +32,7 @@ from .. import START_YEAR
 from ..armies import Army
 from ..characters import Character, render_bloodline
 from ..diplomacy import ALLIANCE, NEUTRALITY, VASSALAGE, stance
-from ..war import fortification
+from ..war import BATTLE_EVENT, SIEGE_EVENT, fortification
 from ..chronicle import AnnalsFilter, pulse_events, show_all_filter
 from ..entities import Event
 from ..factions import Faction
@@ -247,6 +247,7 @@ class MainWindow(QMainWindow):
             self._annals_model.append_events(events)
             self._events.extend(events)
             self._fire_pulses(events)
+            self._fire_battle_markers(snapshot, events)
         self._map.refresh_armies(self._armies_in(snapshot))
         self._year_label.setText(format_tick(snapshot.tick))
         # Cap the annals (which are year-grained) when scrubbed behind the
@@ -262,6 +263,29 @@ class MainWindow(QMainWindow):
             site = self._grid.site_by_id(event.location_id)
             if site is not None:
                 self._map.pulse(site.col, site.row)
+
+    def _fire_battle_markers(self, snapshot: Snapshot, events: List[Event]) -> None:
+        """Mark the tile of each battle/siege this tick with a crossed-swords flash.
+
+        Resolving the tile (ticket 07): a sited fight (a siege/storming) carries a
+        ``location_id`` — the seat — so its tile comes straight from the grid. A
+        field battle has no location and no col/row in its payload; the winner
+        holds the field, so we place the marker on the winner army's tile, found
+        in the snapshot by ``winner_army_id``. If the winner is gone from the
+        snapshot (destroyed and pruned), the battle can't be placed — skip it.
+        """
+        armies_by_id = {a.id: a for a in self._armies_in(snapshot)}
+        for event in events:
+            if event.type not in (BATTLE_EVENT, SIEGE_EVENT):
+                continue
+            if event.location_id is not None:
+                site = self._grid.site_by_id(event.location_id)
+                if site is not None:
+                    self._map.battle_marker(site.col, site.row)
+                continue
+            winner = armies_by_id.get(event.payload.get("winner_army_id"))
+            if winner is not None:
+                self._map.battle_marker(winner.col, winner.row)
 
     def _on_show_all_toggled(self) -> None:
         """Toolbar toggle: show every event vs. the default important-only feed."""

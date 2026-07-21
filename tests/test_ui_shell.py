@@ -304,8 +304,13 @@ def test_marching_hosts_render_and_are_inspectable(qapp):
             window._on_tick_advanced(snap, evs)
         hosts = window._armies_in(window._latest_snapshot)
         assert hosts  # at least one host is afield
-        # the map drew a marker per living host
-        assert len(window._map._army_items) == len(hosts)
+        # the map drew exactly one disc+sprite marker per living host; marching
+        # hosts also add a direction-cue polygon (ticket 06), so count the
+        # pixmap markers rather than every item in the army layer.
+        from PySide6.QtWidgets import QGraphicsPixmapItem
+
+        markers = [i for i in window._map._army_items if isinstance(i, QGraphicsPixmapItem)]
+        assert len(markers) == len(hosts)
         host = hosts[0]
         text = window.describe_tile(host.col, host.row)
         assert host.name in text and "Strength" in text and "Destination" in text
@@ -326,6 +331,48 @@ def test_above_threshold_located_events_fire_a_map_pulse(qapp):
         ]
         window._on_tick_advanced(Snapshot(tick=0, year=START_YEAR), events)
         assert pulsed == [(site.col, site.row)]
+    finally:
+        window.close()
+
+
+def test_field_and_siege_battles_fire_battle_markers(qapp):
+    # A war tick raises crossed-swords markers on the map (ticket 07): a field
+    # battle resolves to the winner army's tile (no location_id, payload names
+    # the winner), a siege to its seat's tile (a real location_id).
+    from arda_sim.armies import Army
+
+    window = build_window("fellowship")
+    try:
+        site = window._grid.sites[0]
+        winner = Army(
+            id=4242, kind="army", created_year=START_YEAR, name="Victors",
+            col=7, row=9, size=500,
+        )
+        snapshot = Snapshot(tick=0, year=START_YEAR, entities={winner.id: winner})
+
+        field = _event(
+            START_YEAR, type_="battle", importance=90, location_id=None,
+            payload={"winner_army_id": winner.id, "loser_army_id": 9999},
+        )
+        siege = _event(
+            START_YEAR, type_="siege", importance=90, location_id=site.id,
+            payload={"besieger_faction_id": 1, "besieged_faction_id": 2},
+        )
+        # A battle whose winner army is gone from the snapshot must not crash —
+        # it is simply skipped (destroyed hosts get pruned).
+        orphan = _event(
+            START_YEAR, type_="battle", importance=90, location_id=None,
+            payload={"winner_army_id": 123456},
+        )
+        # The field battle alone: a marker, and NOT a salience pulse (it has no
+        # location_id, so the pulse path skips it) — the two are distinct.
+        window._on_tick_advanced(snapshot, [field])
+        assert len(window._map._battle_markers) == 1
+        assert window._map._pulses == []
+
+        # The siege (real location_id) and the orphan (winner absent, skipped).
+        window._on_tick_advanced(snapshot, [siege, orphan])
+        assert len(window._map._battle_markers) == 2  # only the siege added one
     finally:
         window.close()
 

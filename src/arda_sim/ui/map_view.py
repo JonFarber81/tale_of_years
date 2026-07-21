@@ -18,12 +18,13 @@ from __future__ import annotations
 from typing import Dict, Iterable, List, Optional
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QVariantAnimation, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import (
     QGraphicsDropShadowEffect,
     QGraphicsEllipseItem,
     QGraphicsItem,
     QGraphicsPixmapItem,
+    QGraphicsPolygonItem,
     QGraphicsScene,
     QGraphicsView,
 )
@@ -51,6 +52,14 @@ _PULSE_MS = 900
 _PULSE_GROWTH = 1.6
 _PULSE_BASE_RADIUS = TILE * 0.7
 
+# A battle marker: crossed swords that flash on the tile where a battle resolved,
+# distinct from the salience ring (colour, motif, and its own z-layer above it).
+# It lives longer than the pulse so a war reads even when both fire on one tile.
+_BATTLE_MS = 1600
+_BATTLE_Z = 6  # above salience pulses (z=5); its own layer, untouched by rebuilds
+_BATTLE_STEEL = QColor(232, 236, 240)  # blade
+_BATTLE_EDGE = QColor(120, 20, 20)  # dark red outline — the blood note
+
 # -- site labels ------------------------------------------------------------
 # Labels are screen-fixed annotations (ItemIgnoresTransformations), so they do
 # not shrink with the map and would all pile up at far zoom. Tier gating is the
@@ -62,6 +71,17 @@ _PULSE_BASE_RADIUS = TILE * 0.7
 _LABEL_TIER1_SCALE = 0.5  # towns / forts (tier 1) appear from mid-zoom
 _LABEL_TIER0_SCALE = 1.5  # ruins / everything else (tier 0) only when zoomed close
 _LABEL_FONT_SIZE = 9  # deliberate point size — stop inheriting the app default
+
+# -- march cue --------------------------------------------------------------
+# A small faction-coloured arrowhead at a marching host's leading edge, pointing
+# to its next path tile (ticket 06). Distances are fractions of a tile measured
+# from the marker centre: the tip sits just outside the disc, the base overlaps
+# it so the wedge reads as attached to the host. Kept small and semi-opaque so
+# the disc+sprite marker stays dominant and it doesn't clutter full-map zoom.
+_MARCH_CUE_TIP = TILE * 0.66  # tip distance from tile centre (leading edge)
+_MARCH_CUE_BASE = TILE * 0.34  # base distance from tile centre
+_MARCH_CUE_HALFWIDTH = TILE * 0.18  # half the arrowhead's base width
+_MARCH_CUE_ALPHA = 205  # subtle, not solid
 
 
 class MapView(QGraphicsView):
@@ -102,6 +122,9 @@ class MapView(QGraphicsView):
         # Live salience-pulse animations, kept referenced so Qt doesn't collect
         # them mid-flight; each removes its own item and drops itself on finish.
         self._pulses: List[QVariantAnimation] = []
+        # Live battle-marker animations, on their own list/z-layer so a
+        # refresh_armies/refresh_owners rebuild never touches them (ticket 07).
+        self._battle_markers: List[QVariantAnimation] = []
 
     # -- layers ----------------------------------------------------------
 
@@ -157,6 +180,46 @@ class MapView(QGraphicsView):
             item = self._army_marker(army)
             self._scene.addItem(item)
             self._army_items.append(item)
+            cue = self._march_cue(army)
+            if cue is not None:
+                self._scene.addItem(cue)
+                self._army_items.append(cue)
+
+    def _march_cue(self, army: Army) -> Optional[QGraphicsPolygonItem]:
+        """A subtle direction arrowhead for a host mid-march, else ``None``.
+
+        Points from the host's tile toward its next path tile — a small wedge at
+        the marker's leading edge that says *this host is moving that way*.
+        Idle/garrisoned hosts (empty ``path``) get no cue. Added as a plain scene
+        item so it scales with the map like the marker it rides on.
+        """
+        if not army.path:
+            return None
+        dx = army.path[0][0] - army.col
+        dy = army.path[0][1] - army.row
+        length = (dx * dx + dy * dy) ** 0.5
+        if length == 0:  # already on the next tile (degenerate) — no direction
+            return None
+        ux, uy = dx / length, dy / length
+        px, py = -uy, ux  # unit perpendicular, for the base corners
+        cx = army.col * TILE + TILE / 2
+        cy = army.row * TILE + TILE / 2
+        tip = QPointF(cx + ux * _MARCH_CUE_TIP, cy + uy * _MARCH_CUE_TIP)
+        base_cx = cx + ux * _MARCH_CUE_BASE
+        base_cy = cy + uy * _MARCH_CUE_BASE
+        left = QPointF(
+            base_cx + px * _MARCH_CUE_HALFWIDTH, base_cy + py * _MARCH_CUE_HALFWIDTH
+        )
+        right = QPointF(
+            base_cx - px * _MARCH_CUE_HALFWIDTH, base_cy - py * _MARCH_CUE_HALFWIDTH
+        )
+        color = QColor(tile_render.faction_color(army.faction_id or UNOWNED))
+        color.setAlpha(_MARCH_CUE_ALPHA)
+        cue = QGraphicsPolygonItem(QPolygonF([tip, left, right]))
+        cue.setBrush(color)
+        cue.setPen(QPen(QColor(20, 20, 20), 0.5))  # thin dark edge for legibility
+        cue.setZValue(4)  # with the marker: above sites/labels, below pulses (z=5)
+        return cue
 
     def _army_marker(self, army: Army) -> QGraphicsPixmapItem:
         """A scene pixmap for one host: a faction-coloured disc (dark outline)
@@ -360,3 +423,73 @@ class MapView(QGraphicsView):
         on_tick(0.0)
         self._pulses.append(anim)
         anim.start()
+
+    # -- battle markers --------------------------------------------------
+
+    def battle_marker(self, col: int, row: int) -> None:
+        """Flash a crossed-swords mark on the tile where a battle resolved.
+
+        Visually distinct from the salience pulse: a steel-and-blood *motif*
+        (two crossed blades) rather than an expanding ring, on its own z-layer
+        (``_BATTLE_Z`` = 6, above the z=5 pulse) so both read when they coincide.
+        Self-cleaning — a brief flare-then-fade that removes its own scene item
+        and drops itself from ``self._battle_markers`` on finish, mirroring
+        :meth:`pulse`. It lives on that list, never in ``self._army_items``, so a
+        refresh_armies/refresh_owners rebuild leaves it untouched.
+        """
+        item = self._scene.addPixmap(self._crossed_swords_pixmap())
+        # Centre the one-tile motif on the tile centre and scale with the map.
+        item.setOffset(-TILE / 2, -TILE / 2)
+        item.setPos(col * TILE + TILE / 2, row * TILE + TILE / 2)
+        item.setZValue(_BATTLE_Z)
+
+        anim = QVariantAnimation(self)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setDuration(_BATTLE_MS)
+
+        def on_tick(t: float) -> None:
+            # A sharp flare in, then a slow fade out; a slight overshoot in size
+            # gives the "clash" its impact before it settles and dims away.
+            item.setScale(1.0 + 0.35 * (1.0 - t))
+            item.setOpacity(1.0 if t < 0.15 else max(0.0, 1.0 - (t - 0.15) / 0.85))
+
+        def on_done() -> None:
+            self._scene.removeItem(item)
+            if anim in self._battle_markers:
+                self._battle_markers.remove(anim)
+
+        anim.valueChanged.connect(on_tick)
+        anim.finished.connect(on_done)
+        on_tick(0.0)
+        self._battle_markers.append(anim)
+        anim.start()
+
+    def _crossed_swords_pixmap(self) -> QPixmap:
+        """A one-tile crossed-swords glyph: two steel blades with a dark-red
+        outline, supersampled for a clean edge then scaled onto the item."""
+        ss = 4
+        span = TILE * ss
+        pixmap = QPixmap(span, span)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        c = span / 2
+        reach = span * 0.34  # how far each blade runs from centre
+        for sign in (1, -1):  # the two crossing diagonals
+            painter.setPen(QPen(_BATTLE_EDGE, span * 0.11, Qt.SolidLine, Qt.RoundCap))
+            painter.drawLine(
+                QPointF(c - reach, c - sign * reach),
+                QPointF(c + reach, c + sign * reach),
+            )
+        for sign in (1, -1):
+            painter.setPen(QPen(_BATTLE_STEEL, span * 0.055, Qt.SolidLine, Qt.RoundCap))
+            painter.drawLine(
+                QPointF(c - reach, c - sign * reach),
+                QPointF(c + reach, c + sign * reach),
+            )
+        painter.end()
+        item_pixmap = pixmap.scaled(
+            TILE, TILE, Qt.KeepAspectRatio, Qt.SmoothTransformation
+        )
+        return item_pixmap

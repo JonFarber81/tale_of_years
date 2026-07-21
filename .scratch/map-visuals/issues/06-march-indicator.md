@@ -7,21 +7,21 @@ honoring the v1 spec's "armies shown moving along roads and rivers"
 
 **Blocked by:** —
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] In `MapView.refresh_armies` (`src/arda_sim/ui/map_view.py:121-146`),
+- [x] In `MapView.refresh_armies` (`src/arda_sim/ui/map_view.py:121-146`),
       when a host has a march path with a next tile, draw a direction cue
       pointing from its tile toward the next path tile. Implementer's pick:
       a small arrowhead/chevron at the marker's leading edge, or a short
       fading trail behind it. Keep it subtle — the marker itself (ticket 03)
       stays the dominant element.
-- [ ] Idle/garrisoned hosts (no active march) show no indicator.
-- [ ] The cue reads at mid zoom but does not clutter full-map zoom — either
+- [x] Idle/garrisoned hosts (no active march) show no indicator.
+- [x] The cue reads at mid zoom but does not clutter full-map zoom — either
       scale-gated like labels or small enough not to matter (tune by eye).
-- [ ] Data source: the host's march path already lives on the army record
+- [x] Data source: the host's march path already lives on the army record
       (CONTEXT.md "March"); read the next waypoint from state — no new sim
       fields, this is render-only.
-- [ ] Rebuilt wholesale with the rest of the army items each
+- [x] Rebuilt wholesale with the rest of the army items each
       `refresh_armies` call — no stale indicators after a host halts or dies.
-- [ ] Verify by running a war scenario: a host marching along a road shows a
+- [x] Verify by running a war scenario: a host marching along a road shows a
       consistent forward cue each tick; it disappears on arrival.

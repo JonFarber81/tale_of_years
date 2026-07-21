@@ -8,22 +8,22 @@ pull their visual weight.
 
 **Blocked by:** —
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Revisit each of mountain / hills / marsh with one of (implementer's
+- [x] Revisit each of mountain / hills / marsh with one of (implementer's
       judgment per terrain):
       - a better hand-picked or composited cell from the Kenney sheet
         (e.g. layering like forest's base + canopy approach);
       - a richer procedural motif (shading, variation, silhouette) than the
         current single flat shape.
-- [ ] Per-tile deterministic variation where it helps (e.g. hills mound
+- [x] Per-tile deterministic variation where it helps (e.g. hills mound
       offset, marsh tuft placement) — seeded from tile coords, never RNG at
       paint time, so renders are reproducible.
-- [ ] Mountains should read as ranges at full-map zoom — that is the main
+- [x] Mountains should read as ranges at full-map zoom — that is the main
       "does the map look good zoomed out" test, since the Misty Mountains
       dominate the map.
-- [ ] Stay inside the existing theme boundaries: all changes in
+- [x] Stay inside the existing theme boundaries: all changes in
       `tile_render.py`; `map_view.py` keeps calling `paint_terrain_tile`
       unchanged. Color helpers stay headless-importable.
-- [ ] Verify by eye at three zoom levels (full map / region / close-up)
+- [x] Verify by eye at three zoom levels (full map / region / close-up)
       against the current render — screenshot before/after for the PR.
