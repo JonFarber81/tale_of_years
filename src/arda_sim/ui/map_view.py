@@ -35,6 +35,9 @@ from . import tile_render
 # zoomed in; the whole theatre still fits when zoomed out.
 TILE = 24
 
+# The zoom-out floor is dynamic — the whole map just fitting the viewport (see
+# :meth:`MapView._min_scale`); this constant is only the fallback before the
+# view has a real viewport. Zoom-in stays a fixed close-up cap.
 _MIN_SCALE = 0.05
 _MAX_SCALE = 8.0
 _ZOOM_STEP = 1.15
@@ -166,13 +169,32 @@ class MapView(QGraphicsView):
     # -- interaction -----------------------------------------------------
 
     def wheelEvent(self, event) -> None:
-        """Zoom toward the cursor, clamped so the map can't invert or vanish."""
-        factor = _ZOOM_STEP if event.angleDelta().y() > 0 else 1.0 / _ZOOM_STEP
-        new_scale = self._scale * factor
-        if new_scale < _MIN_SCALE or new_scale > _MAX_SCALE:
+        """Zoom toward the cursor, clamped between fit-the-map and close-up."""
+        self._apply_zoom(_ZOOM_STEP if event.angleDelta().y() > 0 else 1.0 / _ZOOM_STEP)
+
+    def _apply_zoom(self, factor: float) -> None:
+        """Scale by ``factor``, landing exactly on a clamp rather than skipping it."""
+        new_scale = min(max(self._scale * factor, self._min_scale()), _MAX_SCALE)
+        if new_scale == self._scale:
             return
+        factor = new_scale / self._scale
         self._scale = new_scale
         self.scale(factor, factor)
+
+    def _min_scale(self) -> float:
+        """The zoom-out floor: the whole map just fits the viewport.
+
+        Depends on the live viewport size, so it is computed per zoom rather
+        than fixed — a bigger window may zoom out further in absolute scale yet
+        never past "the entire map is visible".
+        """
+        scene = self._scene.sceneRect()
+        viewport = self.viewport().rect()
+        if scene.isEmpty() or viewport.isEmpty():
+            return _MIN_SCALE
+        return min(
+            viewport.width() / scene.width(), viewport.height() / scene.height()
+        )
 
     def mousePressEvent(self, event) -> None:
         self._press_pos = event.position() if hasattr(event, "position") else event.pos()
