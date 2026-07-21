@@ -6,7 +6,7 @@ click behavior, no model-query changes.
 
 **Blocked by:** —
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] A custom `QStyledItemDelegate` paints each event row: category accent
       (color stripe or glyph) on the left edge, event sentence as the body.

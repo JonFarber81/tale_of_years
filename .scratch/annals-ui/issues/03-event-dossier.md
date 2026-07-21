@@ -6,7 +6,7 @@ single event.
 
 **Blocked by:** 02
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] Every event click (placed or unplaced) renders a dossier into the
       Inspection dock, replacing whatever the dock showed (same behavior as

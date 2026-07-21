@@ -4,7 +4,7 @@
 
 **Blocked by:** 12, 13, 14
 
-**Status:** ready-for-agent
+**Status:** migrated — now tracked on GitHub as [#6](https://github.com/JonFarber81/tale_of_years/issues/6) (2026-07)
 
 - [ ] Full TA 2965 seed assembled and verified: canon faction + character roster correct, not-yet-born characters absent, the Ring borne by Bilbo at Bag End with low scalars, providers at their gateways, the nine Nazgûl placed (Witch-king at Minas Morgul, three at Dol Guldur).
 - [ ] End-to-end determinism hardening: a long open-ended run (e.g. through and past the canonical War-of-the-Ring window) is byte-identical across two runs and across processes; save→load→continue at an arbitrary year is bit-identical to never-stopping.

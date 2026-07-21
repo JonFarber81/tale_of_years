@@ -6,7 +6,7 @@ never scrubbed.
 
 **Blocked by:** 01
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] Clicking a placed event (one with a `location_id`) resolves the Site's
       `col`/`row` and pans/centers the map view on that tile.

@@ -6,7 +6,7 @@ include/exclude buckets from the feed.
 
 **Blocked by:** 01
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] Four chips above the feed, one per bucket, colored to match the row
       accents (the legend teaches the color code). All on by default.
