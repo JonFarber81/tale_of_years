@@ -7,7 +7,7 @@ its stat grid.
 
 **Blocked by:** 01
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] Subject resolution on tile click: a living host on the tile wins;
       else a site on the tile; else the owning faction; else the bare tile.

@@ -7,7 +7,7 @@ foundation ticket — 02 and 03 build on these primitives.
 
 **Blocked by:** —
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] The Inspection dock hosts a `QTextBrowser` (read-only, scrollable,
       selectable); long dossiers scroll instead of overflowing.
