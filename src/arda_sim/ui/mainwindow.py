@@ -317,7 +317,7 @@ class MainWindow(QMainWindow):
         ][-5:]
         if recent:
             lines.append("Recent events:")
-            for ev in recent:
+            for ev in reversed(recent):  # newest first
                 lines.append(f"  TA {ev.year}: {ev.text or ev.type}")
         return "\n".join(lines)
 

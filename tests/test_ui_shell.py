@@ -69,8 +69,9 @@ def test_annals_model_appends_and_renders(qapp):
     model = AnnalsModel()
     model.append_events([_event(START_YEAR), _event(START_YEAR + 1)])
     assert model.rowCount() == 2
-    idx = model.index(0)
-    assert f"TA {START_YEAR}" in model.data(idx)
+    # Newest-first: the later year is at the top (row 0), the earlier below it.
+    assert f"TA {START_YEAR + 1}" in model.data(model.index(0))
+    assert f"TA {START_YEAR}" in model.data(model.index(1))
 
 
 def test_annals_defaults_to_important_only_until_show_all(qapp):

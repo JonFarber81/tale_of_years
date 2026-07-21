@@ -10,8 +10,9 @@ responsive across centuries). Two things decide whether an event shows:
   everything on :meth:`show_all` (build ticket 06).
 
 A ``_visible`` list of source indices is maintained so rows map straight through
-to the filtered-and-capped subset; it is extended incrementally as years tick
-and rebuilt only when the cap or filter changes.
+to the filtered-and-capped subset; it is held **newest-first** (row 0 is the most
+recent event), extended at the front as years tick, and rebuilt only when the cap
+or filter changes.
 """
 
 from __future__ import annotations
@@ -72,9 +73,11 @@ class AnnalsModel(QAbstractListModel):
         self._events.extend(events)
         if not new_visible:
             return
-        start = len(self._visible)
-        self.beginInsertRows(QModelIndex(), start, start + len(new_visible) - 1)
-        self._visible.extend(new_visible)
+        # Newest-first: reverse the batch so the most recent event lands at row 0,
+        # then insert the whole batch ahead of the existing rows.
+        new_visible.reverse()
+        self.beginInsertRows(QModelIndex(), 0, len(new_visible) - 1)
+        self._visible[:0] = new_visible
         self.endInsertRows()
 
     def raw_count(self) -> int:
@@ -127,5 +130,7 @@ class AnnalsModel(QAbstractListModel):
 
     def _rebuild(self) -> None:
         self.beginResetModel()
-        self._visible = [i for i, e in enumerate(self._events) if self._is_visible(e)]
+        self._visible = [
+            i for i, e in enumerate(self._events) if self._is_visible(e)
+        ][::-1]
         self.endResetModel()
