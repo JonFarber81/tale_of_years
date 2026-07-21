@@ -316,6 +316,57 @@ def test_above_threshold_located_events_fire_a_map_pulse(qapp):
         window.close()
 
 
+def test_annals_click_pans_map_to_a_placed_event(qapp):
+    # Clicking a placed event row centers the map on its site with a transient
+    # pulse; header rows and unplaced events move nothing (annals-ui ticket 02).
+    window = build_window("fellowship")
+    focused = []
+    window._map.focus_tile = lambda col, row: focused.append((col, row))
+    try:
+        site = window._grid.sites[0]
+        window._annals_model.append_events(
+            [
+                _event(START_YEAR, importance=90, location_id=site.id),
+                _event(START_YEAR + 1, importance=90),  # unplaced
+            ]
+        )
+        model = window._annals_model
+        rows_before = model.rowCount()
+        window._on_annals_event_clicked(model.index(0))  # header: no-op
+        window._on_annals_event_clicked(model.index(1))  # unplaced event: no-op
+        assert focused == []
+        window._on_annals_event_clicked(model.index(3))  # the placed event
+        assert focused == [(site.col, site.row)]
+        # The jump is space-only: the feed itself is untouched.
+        assert model.rowCount() == rows_before
+    finally:
+        window.close()
+
+
+def test_focus_tile_centers_the_view_and_pulse_expires(qapp):
+    from PySide6.QtCore import QEventLoop, QTimer
+
+    window = build_window("fellowship")
+    try:
+        view = window._map
+        view.resize(160, 120)  # small viewport so centering must scroll
+        site = window._grid.sites[0]
+        view.focus_tile(site.col, site.row)
+        center = view.mapToScene(view.viewport().rect().center())
+        from arda_sim.ui.map_view import TILE
+
+        assert abs(center.x() - (site.col * TILE + TILE / 2)) <= TILE
+        assert abs(center.y() - (site.row * TILE + TILE / 2)) <= TILE
+        # The highlight is transient: the pulse animation cleans itself up.
+        assert len(view._pulses) == 1
+        loop = QEventLoop()
+        QTimer.singleShot(1200, loop.quit)  # outlives the ~900ms pulse
+        loop.exec()
+        assert view._pulses == []
+    finally:
+        window.close()
+
+
 def test_scrub_restore_caps_annals_without_new_events(qapp):
     window = build_window("fellowship", seed_characters=False)  # heartbeat-only
     try:
