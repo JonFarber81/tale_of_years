@@ -4,7 +4,7 @@
 
 **Blocked by:** 11
 
-**Status:** ready-for-agent
+**Status:** migrated — now tracked on GitHub as [#4](https://github.com/JonFarber81/tale_of_years/issues/4) (2026-07)
 
 - [ ] Drive multi-century headless runs (e.g. 200–500 years) with the systems available and record per-tick wall-clock, event-log size, and snapshot-cache memory growth.
 - [ ] Identify the dominant cost drivers (which phase, which entity growth) and whether cost stays acceptable open-ended.

@@ -5,7 +5,7 @@ color vocabulary the app already has.
 
 **Blocked by:** 01
 
-**Status:** ready-for-human
+**Status:** done
 
 - [x] DIPLOMACY: the stance word is colored — `at war` / `hostility` in the
       war red, `alliance` / `treaty` in the construction-adjacent green,
