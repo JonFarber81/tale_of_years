@@ -9,17 +9,21 @@ from snapshots — never the live world.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Dict, List, Optional
 
 from PySide6.QtCore import QMetaObject, Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QDockWidget,
     QDoubleSpinBox,
+    QHBoxLayout,
     QLabel,
     QListView,
     QMainWindow,
+    QPushButton,
     QSlider,
     QToolBar,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -27,7 +31,7 @@ from .. import START_YEAR
 from ..armies import Army
 from ..characters import Character, render_bloodline
 from ..diplomacy import NEUTRALITY, stance
-from ..chronicle import pulse_events
+from ..chronicle import AnnalsFilter, pulse_events, show_all_filter
 from ..entities import Event
 from ..factions import Faction
 from ..playback import Playback
@@ -35,7 +39,13 @@ from ..snapshot import Snapshot
 from ..tiles import UNOWNED, TileGrid
 from ..world import format_tick
 from .annals_model import AnnalsModel, EventRole
-from .annals_style import AnnalsDelegate
+from .annals_style import (
+    BUCKET_COLORS,
+    BUCKET_LABELS,
+    BUCKETS,
+    AnnalsDelegate,
+    types_in_bucket,
+)
 from .event_dossier import render_event_dossier
 from .map_view import MapView
 from .sim_worker import SimWorker
@@ -137,8 +147,40 @@ class MainWindow(QMainWindow):
         annals_view.setItemDelegate(AnnalsDelegate(annals_view))
         annals_view.clicked.connect(self._on_annals_event_clicked)
         self._annals_view = annals_view
+
+        # The bucket chips: the color legend doubled as a filter (ticket 04).
+        # All on by default; an unchecked chip hides its bucket's event types.
+        self._bucket_chips: Dict[str, QPushButton] = {}
+        chip_row = QHBoxLayout()
+        chip_row.setContentsMargins(4, 4, 4, 0)
+        chip_row.setSpacing(4)
+        for bucket in BUCKETS:
+            chip = QPushButton(BUCKET_LABELS[bucket], self)
+            chip.setCheckable(True)
+            chip.setChecked(True)
+            chip.setToolTip(f"Show or hide {BUCKET_LABELS[bucket].lower()} events")
+            color = BUCKET_COLORS[bucket].name()
+            # Base rule renders an excluded chip dim; :checked overrides it to
+            # full-strength (a negation selector proved unreliable here).
+            chip.setStyleSheet(
+                "QPushButton { padding: 1px 8px; border: 1px solid palette(mid);"
+                f" border-left: 4px solid {color}; border-radius: 3px;"
+                " color: palette(mid); }"
+                " QPushButton:checked { color: palette(text); font-weight: bold; }"
+            )
+            chip.toggled.connect(self._apply_annals_filter)
+            chip_row.addWidget(chip)
+            self._bucket_chips[bucket] = chip
+        chip_row.addStretch(1)
+
+        annals_panel = QWidget(self)
+        panel_layout = QVBoxLayout(annals_panel)
+        panel_layout.setContentsMargins(0, 0, 0, 0)
+        panel_layout.setSpacing(2)
+        panel_layout.addLayout(chip_row)
+        panel_layout.addWidget(annals_view)
         annals_dock = QDockWidget("Annals", self)
-        annals_dock.setWidget(annals_view)
+        annals_dock.setWidget(annals_panel)
         self.addDockWidget(Qt.RightDockWidgetArea, annals_dock)
 
         self._inspection_label = QLabel("Select something on the map.", self)
@@ -194,10 +236,25 @@ class MainWindow(QMainWindow):
 
     def _on_show_all_toggled(self) -> None:
         """Toolbar toggle: show every event vs. the default important-only feed."""
-        if self._show_all_action.isChecked():
-            self._annals_model.show_all()
-        else:
-            self._annals_model.important_only()
+        self._apply_annals_filter()
+
+    def _apply_annals_filter(self) -> None:
+        """Compose the feed's filter from both controls.
+
+        The show-all toggle picks the importance base; the bucket chips name
+        the excluded types. They AND together (which buckets × how important),
+        so flipping either control re-applies both.
+        """
+        base = (
+            show_all_filter()
+            if self._show_all_action.isChecked()
+            else AnnalsFilter()
+        )
+        excluded = frozenset()
+        for bucket, chip in self._bucket_chips.items():
+            if not chip.isChecked():
+                excluded |= types_in_bucket(bucket)
+        self._annals_model.set_filter(replace(base, excluded_types=excluded or None))
 
     def _on_frontier_changed(self, frontier: int) -> None:
         """``frontier`` is the newest simulated tick."""
