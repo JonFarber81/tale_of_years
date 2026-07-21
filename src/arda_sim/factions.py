@@ -527,6 +527,7 @@ _ROSTER: tuple = (
     _FactionSeed(
         "Isengard", FactionKind.REALM, leader="Saruman", capital="Isengard",
         aggression=55, posture=Posture.NEUTRAL,
+        regions=("Nan Curunír",),  # Saruman's vale — his own holding, not Rohan's
         goals=("build", "study_the_enemy"),
         disposition=(("Rohan", 10), ("Mordor", -20)),
         treasury=40,
