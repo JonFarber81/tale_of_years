@@ -29,6 +29,7 @@ from typing import Callable, Dict, List, Mapping, Optional, Sequence
 from .characters import BIRTH_EVENT, DEATH_EVENT, DEPARTED_EVENT
 from .entities import Event
 from .factions import FACTION_INTENT_EVENT
+from .succession import ABSORPTION_EVENT, LINE_FAILED_EVENT, SUCCESSION_EVENT
 from .world import World
 
 # The heartbeat's type string (mirrors ``pipeline.HEARTBEAT_EVENT_TYPE``, kept
@@ -55,6 +56,11 @@ BASE_WEIGHT: Dict[str, int] = {
     BIRTH_EVENT: 20,
     DEATH_EVENT: 40,
     DEPARTED_EVENT: 55,
+    # Dynastic events (ticket 08) are era-shaping: a crown changing hands, and —
+    # rarer and heavier still — a ruling line failing and a realm swallowed whole.
+    SUCCESSION_EVENT: 55,
+    LINE_FAILED_EVENT: 70,
+    ABSORPTION_EVENT: 75,
     # A faction's yearly intent is deliberately low: one fires for every power
     # every year, so it stays below the important-only cutoff and out of the
     # default feed, surfacing only under "show all" and on faction inspection.
@@ -243,6 +249,49 @@ def _render_faction_intent(ctx: _RenderContext, event: Event) -> str:
     return f"{name} {verb}."
 
 
+def _render_succession(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    heir = ctx.name(subjects[0]) if subjects else "an heir"
+    payload = event.payload or {}
+    title = payload.get("title")
+    as_title = f" as {title}" if title else ""
+    former_id = payload.get("former_leader_id")
+    if former_id:
+        return f"{heir} succeeded {ctx.name(former_id)}{as_title}."
+    realm = ctx.name(subjects[1]) if len(subjects) >= 2 else "the realm"
+    return f"{heir} took up the rule of {realm}{as_title}."
+
+
+def _render_line_failed(ctx: _RenderContext, event: Event) -> str:
+    realm = ctx.name(event.subject_ids[0]) if event.subject_ids else "a realm"
+    template = _pick(
+        (
+            "The ruling line of {realm} failed, and no heir remained.",
+            "The line of {realm} came to an end, leaving no heir.",
+            "With none left to rule, the line of {realm} was extinguished.",
+        ),
+        event,
+        salt=4,
+    )
+    return template.format(realm=realm)
+
+
+def _render_absorption(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    fallen = ctx.name(subjects[0]) if subjects else "a realm"
+    absorber = ctx.name(subjects[1]) if len(subjects) >= 2 else "a neighbour"
+    template = _pick(
+        (
+            "{fallen} was absorbed into {absorber}.",
+            "The lands of {fallen} passed to {absorber}.",
+            "{absorber} took the leaderless lands of {fallen}.",
+        ),
+        event,
+        salt=5,
+    )
+    return template.format(fallen=fallen, absorber=absorber)
+
+
 # The per-type renderer registry. A type with no renderer yields no prose (the
 # feed shows a structured placeholder for it) — this is where later tickets
 # register their templates.
@@ -251,6 +300,9 @@ _RENDERERS: Dict[str, Callable[[_RenderContext, Event], str]] = {
     DEATH_EVENT: _render_death,
     DEPARTED_EVENT: _render_departed,
     FACTION_INTENT_EVENT: _render_faction_intent,
+    SUCCESSION_EVENT: _render_succession,
+    LINE_FAILED_EVENT: _render_line_failed,
+    ABSORPTION_EVENT: _render_absorption,
 }
 
 
