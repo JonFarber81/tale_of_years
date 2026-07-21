@@ -58,6 +58,9 @@ class Race(str, Enum):
     DWARF = "dwarf"
     ELF = "elf"
     MAIA = "maia"
+    # Wraith-Men bound to the Nine Rings (the Nazgûl, issue #5): immortal while
+    # Sauron and the One Ring endure, unmade (status ``destroyed``) with it.
+    WRAITH = "wraith"
 
     def __str__(self) -> str:
         return self.value
@@ -130,7 +133,13 @@ RACE_CONFIG: Dict[Race, RaceConfig] = {
     ),
     Race.ELF: RaceConfig(MortalityKind.IMMORTAL, 50, (50, 3000), 200, ()),
     Race.MAIA: RaceConfig(MortalityKind.IMMORTAL, 0, (0, 0), 0, ()),
+    Race.WRAITH: RaceConfig(MortalityKind.IMMORTAL, 0, (0, 0), 0, ()),
 }
+
+# The Dark Lord's authored title — the mark by which the Ring phase knows the one
+# claimant whose claim is *terminal* (issue #5). A seed-authoring contract, like
+# the roster names, kept here so ring.py never imports the Sauron module.
+DARK_LORD_TITLE = "the Dark Lord"
 
 
 @dataclass

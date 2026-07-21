@@ -48,9 +48,17 @@ from .economy import (
 from .entities import Event
 from .factions import FACTION_INTENT_EVENT
 from .ring import (
+    NAZGUL_UNMADE_EVENT,
     RING_CLAIMED_EVENT,
+    RING_DESTROYED_EVENT,
+    RING_LOST_EVENT,
     RING_MOVED_EVENT,
     RING_TRANSFERRED_EVENT,
+)
+from .sauron import (
+    NAZGUL_HUNT_EVENT,
+    ROLE_TAKEN_EVENT,
+    SAURON_RISE_EVENT,
 )
 from .succession import ABSORPTION_EVENT, LINE_FAILED_EVENT, SUCCESSION_EVENT
 from .war import (
@@ -134,6 +142,17 @@ BASE_WEIGHT: Dict[str, int] = {
     RING_CLAIMED_EVENT: 90,
     RING_TRANSFERRED_EVENT: 70,
     RING_MOVED_EVENT: 45,
+    # Sauron's rise & the terminal outcomes (issue #5): the Ring going into the
+    # Fire is the loudest thing a run can say; the Nine unmade rings with it; the
+    # Shadow's strength crossing a band and the Nine riding out are era-noise that
+    # clears the cut; the Ring lying long lost is a quiet, heavy close. A
+    # character drifting into a canon role is chronicle-fodder only.
+    RING_DESTROYED_EVENT: 95,
+    NAZGUL_UNMADE_EVENT: 85,
+    RING_LOST_EVENT: 60,
+    SAURON_RISE_EVENT: 60,
+    NAZGUL_HUNT_EVENT: 65,
+    ROLE_TAKEN_EVENT: 18,
     _HEARTBEAT_EVENT: 0,  # the placeholder tick is never important
 }
 
@@ -182,14 +201,34 @@ def _scale_factor(event: Event) -> int:
     return _UNIT
 
 
+# The canon-weighty event types (issue #5): the Ring's stirrings and Sauron's
+# rise carry the era's meaning, so a canon-leaning run surfaces them harder.
+_CANON_TYPES: FrozenSet[str] = frozenset(
+    {
+        RING_MOVED_EVENT,
+        RING_TRANSFERRED_EVENT,
+        RING_CLAIMED_EVENT,
+        RING_DESTROYED_EVENT,
+        RING_LOST_EVENT,
+        NAZGUL_UNMADE_EVENT,
+        NAZGUL_HUNT_EVENT,
+        SAURON_RISE_EVENT,
+    }
+)
+_CANON_BUMP = 300  # permille added at full canonicity
+
+
 def _canon_factor(event: Event, canonicity: float) -> int:
     """Permille multiplier bumping canon-aligned events toward ``canonicity``.
 
-    Neutral (×1.0) here: none of the current types are canon-aligned. Later
-    tickets flag the canon-weighty types (the Ring moving, Sauron's rise) and
-    this becomes ``1000 + int(canonicity × bump)`` for them — still integer.
+    ``1000 + canonicity × bump`` for the canon-weighty types (the Ring moving,
+    Sauron's rise), neutral for everything else — integer throughout, so scoring
+    never hinges on float rounding.
     """
-    return _UNIT
+    if event.type not in _CANON_TYPES:
+        return _UNIT
+    canonicity = max(0.0, min(1.0, canonicity))
+    return _UNIT + _CANON_BUMP * int(canonicity * 1000) // 1000
 
 
 def score_importance(event: Event, prominence: int, canonicity: float) -> int:
@@ -305,6 +344,7 @@ _INTENT_PHRASING: Dict[str, str] = {
     "fortify": "looked to its defences",
     "seek_pact": "sought new alliances",
     "build": "turned to building and husbandry",
+    "hunt_ring": "bent its will toward the Ring",
 }
 
 
@@ -723,6 +763,10 @@ def _render_ring_moved(ctx: _RenderContext, event: Event) -> str:
 def _render_ring_claimed(ctx: _RenderContext, event: Event) -> str:
     subjects = event.subject_ids
     bearer = ctx.name(subjects[1]) if len(subjects) >= 2 else "its bearer"
+    if (event.payload or {}).get("terminal"):
+        return (
+            f"{bearer} took back the One Ring, and the Shadow fell over Middle-earth."
+        )
     template = _pick(
         (
             "{bearer}, gripped by the Ring, claimed it for their own.",
@@ -732,6 +776,70 @@ def _render_ring_claimed(ctx: _RenderContext, event: Event) -> str:
         salt=25,
     )
     return template.format(bearer=bearer)
+
+
+def _render_ring_destroyed(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    bearer = ctx.name(subjects[1]) if len(subjects) >= 2 else "its bearer"
+    return (
+        f"The One Ring went into the Fire at the hand of {bearer}, "
+        "and the power of Sauron was broken for ever."
+    )
+
+
+def _render_nazgul_unmade(ctx: _RenderContext, event: Event) -> str:
+    return "The Nine were unmade, passing like smoke on a wind out of the East."
+
+
+def _render_ring_lost(ctx: _RenderContext, event: Event) -> str:
+    place = ctx.place(event.location_id)
+    at = f" at {place}" if place else ""
+    return f"The One Ring lay lost and forgotten{at}, and the world forgot to look."
+
+
+def _render_sauron_rise(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    realm = ctx.name(subjects[0]) if subjects else "Mordor"
+    payload = event.payload or {}
+    rising = payload.get("strength", 0) >= payload.get("previous", 0)
+    if rising:
+        template = _pick(
+            (
+                "The Shadow lengthened, and the power of {realm} waxed.",
+                "Smoke rose over {realm}, and its strength grew year on year.",
+            ),
+            event,
+            salt=26,
+        )
+    else:
+        template = _pick(
+            (
+                "The Shadow faltered, and the power of {realm} waned.",
+                "For a season the strength of {realm} was checked.",
+            ),
+            event,
+            salt=27,
+        )
+    return template.format(realm=realm)
+
+
+def _render_nazgul_hunt(ctx: _RenderContext, event: Event) -> str:
+    payload = event.payload or {}
+    if payload.get("phase") == "begun":
+        return "The Nine rode forth in black, hunting the One Ring."
+    reason = payload.get("reason")
+    if reason == "quarry_taken":
+        return "The hunt of the Nine was ended, for the Ring had come into the Shadow's keeping."
+    if reason == "lost_scent":
+        return "The Ringwraiths lost the scent, and the hunt turned back empty-handed."
+    return "The Nine gave over their hunt and turned again to their master's wars."
+
+
+def _render_role_taken(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    who = ctx.name(subjects[0]) if subjects else "an heir"
+    realm = ctx.name(subjects[1]) if len(subjects) >= 2 else "the realm"
+    return f"{who} was acknowledged heir of {realm}."
 
 
 # The per-type renderer registry. A type with no renderer yields no prose (the
@@ -766,6 +874,12 @@ _RENDERERS: Dict[str, Callable[[_RenderContext, Event], str]] = {
     RING_TRANSFERRED_EVENT: _render_ring_transferred,
     RING_MOVED_EVENT: _render_ring_moved,
     RING_CLAIMED_EVENT: _render_ring_claimed,
+    RING_DESTROYED_EVENT: _render_ring_destroyed,
+    NAZGUL_UNMADE_EVENT: _render_nazgul_unmade,
+    RING_LOST_EVENT: _render_ring_lost,
+    SAURON_RISE_EVENT: _render_sauron_rise,
+    NAZGUL_HUNT_EVENT: _render_nazgul_hunt,
+    ROLE_TAKEN_EVENT: _render_role_taken,
 }
 
 

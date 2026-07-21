@@ -604,6 +604,21 @@ def _will_raze(attacker: Faction) -> bool:
     return attacker.posture == Posture.AGGRESSIVE.value or attacker.aggression >= 80
 
 
+def extinguish_realm(world: World, faction: Faction, region_ids: List[int]) -> List[Event]:
+    """Public seam (issue #5): tombstone a realm that has lost all its land.
+
+    The Sauron phase drives Mordor's post-destruction collapse through this — the
+    same extinction a conquest fires — so a broken realm always leaves play the
+    one way: peace made, hosts disbanded, a dormant claim kept.
+    """
+    return _extinguish(world, faction, region_ids)
+
+
+def owned_region_ids(grid: TileGrid, faction_id: int) -> List[int]:
+    """Public seam (issue #5): the region ids a faction still holds tiles of."""
+    return _owned_region_ids(grid, faction_id)
+
+
 def _extinguish(world: World, faction: Faction, region_ids: List[int]) -> List[Event]:
     """Tombstone a realm that has lost all its land, keeping a dormant claim and
     ending every war it was party to (mirrors a failed line's extinction)."""
@@ -616,6 +631,7 @@ def _extinguish(world: World, faction: Faction, region_ids: List[int]) -> List[E
                 events.append(peace)
     faction.status = EntityStatus.DEAD.value
     faction.military_strength = 0
+    faction.sauron_strength = 0  # a broken Shadow's scalar reads honestly (issue #5)
     faction.claim_region_ids = sorted(set(faction.claim_region_ids) | set(region_ids))
     # Its hosts, now homeless, disband.
     for host in armies(world, alive_only=True):

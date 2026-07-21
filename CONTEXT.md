@@ -248,6 +248,39 @@ where it lay), **war-capture** (seized by a host holding that ground), and
 **Errand** — the Ring travelling with its bearer toward a goal, advancing tile by
 tile on a walking pace while borne; unborne, it never moves itself.
 
+## Sauron's rise & canonicity
+
+**Sauron-strength** — the phase-7 scalar of the rising Shadow, recomputed each
+tick as `canon_baseline(year) × canonicity + Σ emergent deltas` and cached on the
+dark realm's faction record (zero everywhere else). Consumed by the *next* tick's
+phases: it scales Mordor's musters, draws provider commitment upward, unlocks the
+hunt, and slows the pull's ebb.
+
+**Canon baseline** — the authored strength ramp the era bends around: arming
+since 2951, climbing toward the War-of-the-Ring window, Orodruin active ~3007.
+At canonicity 0 the baseline term vanishes and only emergent history remains.
+
+**Canonicity** — the single global 0–1 knob in the run config scaling how hard
+history is nudged toward canon. **Soft weighting only**, on four forces: Sauron's
+rise, the Ring's stirring, Free-Peoples pact odds, and character role-seeking. It
+never fires an event and never touches a battle's dice.
+
+**Nazgûl** — the nine wraith Characters bound to the Nine (race `wraith`,
+immortal while Sauron and the Ring endure; the Witch-king at Minas Morgul,
+Khamûl at Dol Guldur). Elite generals of the dark realm between hunts; **unmade**
+(status `destroyed`) with the Ring's destruction.
+
+**Hunt** — the Nine on the road after the Ring: a transient tile-moving record
+spawned by the dark realm's phase-2 `hunt_ring` intent (fired only on high
+strength + high pull), riding on a search budget toward the Ring's tile. The hunt
+only *moves* — the capture attempt is the Ring phase's own roll.
+
+**Terminal outcome** — one of the Ring's three endings, each raising a world
+flag: **destroyed** (an errand reaching active Orodruin — Ring tombstoned, the
+Nine unmade, Sauron broken, Mordor collapsing to extinction), **Sauron reclaims**
+(the Ring delivered to the Dark Lord's hand), and **lying lost** (a soft,
+reversible holding pattern: unborne and unfelt for years on end).
+
 ## Annals & inspection
 
 **Annals feed** — the newest-first chronicle of events the viewer reads,
