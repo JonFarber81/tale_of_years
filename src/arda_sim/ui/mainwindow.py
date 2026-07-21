@@ -37,7 +37,7 @@ from ..chronicle import AnnalsFilter, pulse_events, show_all_filter
 from ..entities import Event
 from ..factions import Faction
 from ..playback import Playback
-from ..ring import Ring
+from ..ring import Ring, the_ring
 from ..snapshot import Snapshot
 from ..tiles import UNOWNED, TileGrid
 from ..world import format_tick
@@ -457,11 +457,12 @@ class MainWindow(QMainWindow):
         return None
 
     def _ring_in(self, snapshot: Snapshot) -> Optional[Ring]:
-        """The One Ring in a snapshot (there is at most one), or ``None``."""
-        for _id, entity in sorted(snapshot.entities.items()):
-            if isinstance(entity, Ring):
-                return entity
-        return None
+        """The One Ring in a snapshot (there is at most one), or ``None``.
+
+        A snapshot exposes the same ``entities`` map the query reads, so the sim's
+        own :func:`arda_sim.ring.the_ring` stands in for the live world here.
+        """
+        return the_ring(snapshot)
 
     def _ring_on(self, col: int, row: int) -> Optional[Ring]:
         """The One Ring if it stands on this tile in the current snapshot."""

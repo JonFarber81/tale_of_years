@@ -31,8 +31,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional
 
-from .armies import find_path, tick_speed
-from .characters import Character, Role, ancestors, characters, children_of
+from .armies import find_path, step_along_path
+from .characters import Character, Race, Role, ancestors, characters, children_of
 from .entities import Entity, Event, register_entity_type
 from .rng import make_rng
 from .tiles import TileGrid
@@ -104,7 +104,30 @@ _PULL_RISK_SLOPE = 1  # extra bp of loss/theft per point of pull (pull caps at 1
 # A claim, once corruption is high enough, is itself a bounded roll each tick.
 _CLAIM_BP = 40
 
-_DEFAULT_MILES_PER_YEAR = 200  # the Ring travels at a walking-company's pace
+# A free gift: a still-untainted bearer may pass the Ring to a kin heir of their
+# own will — the Bilbo→heir *tendency*, a canonicity-weighted roll (canon worlds
+# follow the canon hand-off), only while corruption is low enough to let it go.
+_GIFT_BP = 6
+_GIFT_MAX_CORRUPTION = _SECRECY_CORRUPTION  # a possessive bearer no longer gives it up
+
+# A deliberate errand: with danger drawing (high pull) a bearer may be moved to
+# carry the Ring away toward a distant refuge — again canonicity-weighted.
+_ERRAND_PULL_MIN = 30
+_ERRAND_BP = 40
+
+_DEFAULT_MILES_PER_YEAR = 190  # fallback walking pace when a bearer's race is unknown
+
+# Per-race walking pace (miles/year) an errand advances on — the bearer's own
+# budget, not one fixed rate: Elves and Men stride, Hobbits and Dwarves plod.
+_RACE_PACE: Dict[Race, int] = {
+    Race.HOBBIT: 140,
+    Race.DWARF: 150,
+    Race.MAN: 190,
+    Race.DUNEDAIN: 200,
+    Race.ORC: 200,
+    Race.ELF: 220,
+    Race.MAIA: 220,
+}
 
 
 @dataclass
@@ -268,7 +291,9 @@ def _borne_tick(
     events: List[Event] = []
     _track_bearer_tile(world, ring, bearer)
     _grow_corruption(ring, bearer)
+    _maybe_errand(world, ring, bearer, r)  # danger may set it on the road
     events.extend(_advance_errand(world, ring, bearer))
+    events.extend(_maybe_gift(world, ring, bearer, r))  # the Bilbo→heir tendency
     events.extend(_maybe_claim(world, ring, bearer, r))
     events.extend(_maybe_slip_away(world, ring, bearer, r))
     return events
@@ -306,7 +331,7 @@ def _maybe_claim(
         world.new_event(
             type=RING_CLAIMED_EVENT,
             subject_ids=[ring.id, bearer.id],
-            location_id=_bearer_site(world, bearer),
+            location_id=_bearer_site(bearer),
             payload={
                 "bearer_id": bearer.id,
                 "corruption": ring.corruption,
@@ -316,6 +341,91 @@ def _maybe_claim(
             },
         )
     ]
+
+
+def _maybe_gift(
+    world: World, ring: Ring, bearer: Character, r: random.Random
+) -> List[Event]:
+    """A still-untainted bearer may freely give the Ring to a kin heir.
+
+    The Bilbo→heir *tendency*, never scripted: only while corruption is low enough
+    to relinquish it, only to a living kin heir, and on a canonicity-weighted roll
+    (a canon world is likelier to follow the canon hand-off). No heir → no gift.
+    """
+    if ring.corruption > _GIFT_MAX_CORRUPTION:
+        return []
+    if r.randrange(1000) >= _canon_weighted(world, _GIFT_BP):
+        return []
+    heir = _kin_heir(world, bearer)
+    if heir is None:
+        return []
+    return [transfer_ring(world, ring, to_bearer=heir, mode=RingTransfer.GIFT)]
+
+
+def _maybe_errand(
+    world: World, ring: Ring, bearer: Character, r: random.Random
+) -> None:
+    """With danger drawing, a bearer may set out to carry the Ring to a refuge.
+
+    Fired only when it is not already travelling and the pull has risen — a
+    canonicity-weighted roll toward a distant goal node. Sets the errand up; the
+    per-tick advance (this same tick) walks it. Emits nothing itself.
+    """
+    if ring.on_errand or ring.pull < _ERRAND_PULL_MIN:
+        return
+    if r.randrange(1000) >= _canon_weighted(world, _ERRAND_BP):
+        return
+    goal = _refuge_goal(world, ring)
+    if goal is not None:
+        send_on_errand(world, ring, goal)
+
+
+def _kin_heir(world: World, bearer: Character) -> Optional[Character]:
+    """The bearer's canon (nearest-kin) heir, or ``None`` if they have no kin."""
+    for candidate in heir_candidates(world, bearer):
+        if candidate.id in _kin_ids(world, bearer):
+            return candidate
+    return None
+
+
+def _kin_ids(world: World, bearer: Character) -> set:
+    """Ids of the bearer's blood kin (descendants and collateral), for the gift."""
+    ids = {c.id for c in children_of(world, bearer.id)}
+    for forebear in ancestors(world, bearer.id):
+        ids.update(c.id for c in children_of(world, forebear.id))
+    ids.discard(bearer.id)
+    return ids
+
+
+def _refuge_goal(world: World, ring: Ring) -> Optional[int]:
+    """A deterministic errand goal: the site farthest from where the Ring now is.
+
+    A flight away from danger toward a distant node — chosen by tile distance with
+    an id tie-break, so it is reproducible without hard-coding a lore location.
+    """
+    grid = world.grid
+    if grid is None or not grid.sites:
+        return None
+    best: Optional[int] = None
+    best_key = (-1, 0)
+    for site in grid.sites:
+        dist = (site.col - ring.col) ** 2 + (site.row - ring.row) ** 2
+        key = (dist, -site.id)
+        if dist > 0 and key > best_key:
+            best_key = key
+            best = site.id
+    return best
+
+
+def _canon_weighted(world: World, base_bp: int) -> int:
+    """Scale a base chance by canonicity — a canon world follows the canon move.
+
+    Integer permille of the run's canonicity applied to ``base_bp`` (0..1000), so
+    at full canonicity the mode fires at its base rate and at zero canonicity it
+    rarely does. Keeps the "canonicity-weighted seeded roll" contract integer.
+    """
+    canonicity = max(0.0, min(1.0, world.config.canonicity))
+    return base_bp * int(canonicity * 1000) // 1000
 
 
 def _maybe_slip_away(
@@ -375,7 +485,7 @@ def _on_bearer_fallen(world: World, ring: Ring, r: random.Random) -> List[Event]
     if heir is not None:
         return [transfer_ring(world, ring, to_bearer=heir, mode=RingTransfer.INHERITANCE)]
     fallen = world.entities.get(ring.bearer_id)
-    site_id = _bearer_site(world, fallen) if isinstance(fallen, Character) else None
+    site_id = _bearer_site(fallen) if isinstance(fallen, Character) else None
     return [_drop_to_site(world, ring, site_id)]
 
 
@@ -488,7 +598,7 @@ def transfer_ring(
         _place_on_character(world, ring, to_bearer)
         payload["to_bearer_id"] = to_bearer.id
         subjects.append(to_bearer.id)
-        location_id = _bearer_site(world, to_bearer)
+        location_id = _bearer_site(to_bearer)
     else:
         ring.bearer_id = None
         ring.location_id = to_location
@@ -503,9 +613,12 @@ def transfer_ring(
     )
 
 
+_ANY_SITE = 0  # sentinel location id when the Ring falls off any known site
+
+
 def _drop(world: World, ring: Ring, bearer: Character) -> Event:
     """A bearer loses the Ring where they stand — it lies unborne at their seat."""
-    return _drop_to_site(world, ring, _bearer_site(world, bearer))
+    return _drop_to_site(world, ring, _bearer_site(bearer))
 
 
 def _drop_to_site(world: World, ring: Ring, site_id: Optional[int]) -> Event:
@@ -515,9 +628,6 @@ def _drop_to_site(world: World, ring: Ring, site_id: Optional[int]) -> Event:
         site = _site_at(world, ring.col, ring.row)
         site_id = site.id if site is not None else _ANY_SITE
     return transfer_ring(world, ring, to_location=site_id, mode=RingTransfer.LOSS)
-
-
-_ANY_SITE = 0  # sentinel location id when the Ring falls off any known site
 
 
 # =========================================================================
@@ -537,11 +647,19 @@ def send_on_errand(world: World, ring: Ring, goal_site_id: int) -> bool:
     dest = grid.site_by_id(goal_site_id)
     if dest is None:
         return False
+    bearer = world.entities.get(ring.bearer_id)
+    if isinstance(bearer, Character):
+        ring.miles_per_year = _bearer_pace(bearer)  # travel on the bearer's own budget
     path = find_path(grid, (ring.col, ring.row), (dest.col, dest.row))
     ring.goal_site_id = goal_site_id
     ring.path = path
     ring.move_points = 0
     return True
+
+
+def _bearer_pace(bearer: Character) -> int:
+    """The bearer's own walking pace (miles/year) an errand advances on."""
+    return _RACE_PACE.get(Race(bearer.race), _DEFAULT_MILES_PER_YEAR)
 
 
 def _advance_errand(world: World, ring: Ring, bearer: Character) -> List[Event]:
@@ -556,7 +674,9 @@ def _advance_errand(world: World, ring: Ring, bearer: Character) -> List[Event]:
     if grid is None or not ring.on_errand:
         return []
     start = (ring.col, ring.row)
-    _step_along_path(world, ring)
+    ring.col, ring.row, ring.path, ring.move_points = step_along_path(
+        grid, ring.col, ring.row, ring.path, ring.move_points, ring.miles_per_year
+    )
     if (ring.col, ring.row) == start:
         return []  # not enough budget to clear the next tile this tick
     use_ring(ring)  # an active errand is a use — pull rises
@@ -579,28 +699,6 @@ def _advance_errand(world: World, ring: Ring, bearer: Character) -> List[Event]:
             },
         )
     ]
-
-
-def _step_along_path(world: World, ring: Ring) -> None:
-    """Spend this tick's movement budget to walk as far along ``path`` as it reaches."""
-    grid = world.grid
-    if grid is None:
-        return
-    points = ring.move_points + tick_speed(ring.miles_per_year, grid.miles_per_tile)
-    col, row = ring.col, ring.row
-    remaining = [list(tile) for tile in ring.path]
-    while remaining:
-        nc, nr = remaining[0]
-        step = grid.move_cost(nc, nr)
-        cost = 2 if step is None else step  # an impassable goal tile is still enterable
-        if points < cost:
-            break
-        points -= cost
-        col, row = nc, nr
-        remaining.pop(0)
-    ring.col, ring.row = col, row
-    ring.move_points = points
-    ring.path = remaining  # fresh list (snapshot-safe)
 
 
 # =========================================================================
@@ -649,7 +747,7 @@ def _place_on_site(world: World, ring: Ring, site_id: Optional[int]) -> None:
         ring.col, ring.row = site.col, site.row
 
 
-def _bearer_site(world: World, bearer: Optional[Character]) -> Optional[int]:
+def _bearer_site(bearer: Optional[Character]) -> Optional[int]:
     """The site id a bearer stands at (their ``location_id``), or ``None``."""
     if not isinstance(bearer, Character):
         return None

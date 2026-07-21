@@ -29,6 +29,8 @@ from arda_sim.ring import (
     RING_TRANSFERRED_EVENT,
     Ring,
     RingTransfer,
+    _maybe_errand,
+    _maybe_gift,
     corruption_growth,
     heir_candidates,
     inheritance_heir,
@@ -41,6 +43,17 @@ from arda_sim.ring import (
     transfer_ring,
     use_ring,
 )
+
+
+class _Roll:
+    """A stub RNG whose ``randrange`` always returns a fixed value — lets a test
+    pin a canonicity-weighted roll to fire (0) or not (999) deterministically."""
+
+    def __init__(self, value):
+        self._value = value
+
+    def randrange(self, n):
+        return self._value
 from arda_sim.tiles import Site, Terrain, TileGrid, UNOWNED
 from arda_sim.world import World
 
@@ -273,6 +286,40 @@ def test_errand_advances_the_ring_and_spikes_pull():
             break
     assert moved_off_start
     assert pull_after_move > 0  # travelling with it is a use — pull spikes
+
+
+def test_gift_fires_from_the_phase_to_a_kin_heir():
+    # The Bilbo→heir tendency: while still untainted, a bearer with a living kin
+    # heir may freely give the Ring on — a mode the phase fires, not just a test.
+    world, grid, bilbo, ring = _world_with_bearer()
+    heir = add_character(
+        world, "Frodo", Race.HOBBIT, 2968, role=Role.NONE,
+        location_id=grid.site_id_of("Bag End"), parent_ids=[bilbo.id],
+    )
+    ring.corruption = 5  # low — the bearer can still let it go
+    events = _maybe_gift(world, ring, bilbo, _Roll(0))
+    assert len(events) == 1
+    assert ring.bearer_id == heir.id
+    assert events[0].payload["mode"] == RingTransfer.GIFT.value
+    # A possessive (corrupted) bearer never gives it up.
+    world2, grid2, bilbo2, ring2 = _world_with_bearer(seed="grip")
+    add_character(
+        world2, "Frodo", Race.HOBBIT, 2968, role=Role.NONE,
+        location_id=grid2.site_id_of("Bag End"), parent_ids=[bilbo2.id],
+    )
+    ring2.corruption = 60
+    assert _maybe_gift(world2, ring2, bilbo2, _Roll(0)) == []
+
+
+def test_errand_is_fired_from_the_phase_when_the_pull_rises():
+    # With danger drawing (high pull) the phase can set the Ring on the road, and
+    # the errand advances on the bearer's own (hobbit) pace, not a fixed rate.
+    world, grid, bilbo, ring = _world_with_bearer()
+    ring.pull = 50
+    _maybe_errand(world, ring, bilbo, _Roll(0))
+    assert ring.on_errand and ring.goal_site_id is not None
+    from arda_sim.ring import _RACE_PACE
+    assert ring.miles_per_year == _RACE_PACE[Race.HOBBIT]
 
 
 def test_unborne_ring_does_not_move():
