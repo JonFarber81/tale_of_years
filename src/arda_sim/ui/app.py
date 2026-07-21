@@ -13,7 +13,7 @@ from typing import List, Optional
 from PySide6.QtWidgets import QApplication
 
 from ..characters import new_seeded_run
-from ..factions import seed_factions
+from ..factions import factions, seed_factions
 from ..playback import Playback
 from ..scenarios import load_scenario
 from ..validate import check_grid
@@ -46,15 +46,18 @@ def build_window(
     if seed_characters:
         world = new_seeded_run(seed, canonicity=canonicity)
         faction_names = seed_factions(world, grid)
+        # faction id -> people, so host markers draw their folk's sprite (03).
+        faction_people = {f.id: f.people for f in factions(world)}
     else:
         world = World.new_run(seed, canonicity=canonicity)
         faction_names = {}
+        faction_people = {}
     # Attach the map as the live handle every territory-touching phase reaches
     # through (ADR-0004) — without it movement (phase 4) and war (phase 5) are
     # inert no-ops, so the political map would never move. Mirrors seed_world().
     world.grid = grid
     playback = Playback(world)
-    return MainWindow(playback, grid, faction_names)
+    return MainWindow(playback, grid, faction_names, faction_people)
 
 
 def main(argv: Optional[List[str]] = None) -> int:

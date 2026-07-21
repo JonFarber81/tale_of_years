@@ -44,9 +44,26 @@ _SPRITE_CELL: Dict[Terrain, Tuple[int, int]] = {
 _FOREST_BASE_CELL = (11, 11)   # solid dark-green undergrowth
 _FOREST_CANOPY_CELL = (13, 9)  # round tree canopy
 
-# Lazily loaded spritesheet pixmap — needs a running QGuiApplication, so it is
-# only touched from paint (never at import or from the headless colour tests).
+# People -> character-sheet cell (col, row) for a host's folk sprite (map-visuals
+# ticket 03). These index the bundled Kenney *Characters* sheet (a separate CC0
+# pack from the terrain sheet, same 16px/stride-17 geometry) — a real figure of
+# the folk drawn over the faction colour, so the marker says *whose* (colour) and
+# *what folk* (figure) at a glance. Cells picked from the sheet's base figures:
+# skin/robe/beard/size distinguish the folk even at tile size.
+_PEOPLE_CELL: Dict[str, Tuple[int, int]] = {
+    "men": (0, 1),      # a plain human figure
+    "elves": (1, 5),    # a fair, white-haired robed figure
+    "dwarves": (1, 6),  # a stout bearded figure
+    "orcs": (1, 3),     # a green-skinned figure
+    "hobbits": (0, 10),  # a small child-sized figure
+}
+# Fallback cell for any unknown/missing people value — a plain human figure.
+_PEOPLE_FALLBACK_CELL: Tuple[int, int] = (0, 0)
+
+# Lazily loaded spritesheet pixmaps — each needs a running QGuiApplication, so
+# they are only touched from paint (never at import or from the headless tests).
 _sheet: Optional[QPixmap] = None
+_char_sheet: Optional[QPixmap] = None
 
 
 def _sheet_pixmap() -> QPixmap:
@@ -56,6 +73,16 @@ def _sheet_pixmap() -> QPixmap:
 
         _sheet = QPixmap(str(tileset_path()))
     return _sheet
+
+
+def _char_sheet_pixmap() -> QPixmap:
+    """The Kenney Characters sheet, loaded lazily like :func:`_sheet_pixmap`."""
+    global _char_sheet
+    if _char_sheet is None:
+        from .assets import character_tileset_path
+
+        _char_sheet = QPixmap(str(character_tileset_path()))
+    return _char_sheet
 
 
 def _sprite_source(cell: Tuple[int, int]) -> QRectF:
@@ -109,6 +136,31 @@ def faction_color(faction_id: int, alpha: int = 255) -> QColor:
 def owner_tint(faction_id: int) -> QColor:
     """The translucent tint painted over an owned tile's terrain."""
     return faction_color(faction_id, _OWNER_TINT_ALPHA)
+
+
+def people_sprite_cell(people: Optional[str]) -> Tuple[int, int]:
+    """The spritesheet ``(col, row)`` for a people's host sprite, or the fallback.
+
+    A pure lookup with no spritesheet access, so it stays importable and testable
+    headlessly (no ``QGuiApplication``), like the colour helpers above.
+    """
+    return _PEOPLE_CELL.get(people, _PEOPLE_FALLBACK_CELL)
+
+
+def paint_people_sprite(
+    painter: QPainter, people: Optional[str], x: float, y: float, size: float
+) -> None:
+    """Blit a people's character sprite scaled into the cell at ``(x, y)``.
+
+    Mirrors :func:`paint_terrain_tile`, but draws from the Kenney *Characters*
+    sheet: it touches that lazily-loaded pixmap, so it needs a running
+    QGuiApplication (never called from the headless tests).
+    """
+    painter.drawPixmap(
+        QRectF(x, y, size, size),
+        _char_sheet_pixmap(),
+        _sprite_source(people_sprite_cell(people)),
+    )
 
 
 def paint_terrain_tile(

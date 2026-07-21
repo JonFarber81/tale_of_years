@@ -10,6 +10,12 @@ is *only* the shared vocabulary.
 Realms own territory and muster hosts; cultures hold ground but project little
 force; providers are off-map peoples reached through a gateway.
 
+**People** — the broad folk a faction belongs to
+(`men | elves | dwarves | orcs | hobbits`). World-truth about the faction itself,
+not its army's composition, and independent of `kind` (Isengard in TA 2965 is
+*men*: Saruman's holding, no Uruk-hai yet). Authored at seed on every faction,
+providers included.
+
 **Disposition** — an *asymmetric* per-ordered-pair scalar (−100..+100) recording
 how one faction regards another. Sparse: an absent entry means "no special
 feeling", read as the pair's baseline temper. Evolved by the diplomacy phase.

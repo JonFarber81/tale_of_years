@@ -17,6 +17,12 @@ TILESET_RELPATH = (
     "tilesets/kenney_roguelike-rpg/Spritesheet/roguelikeSheet_transparent.png"
 )
 
+# The Kenney Roguelike Characters pack (CC0), bundled for the host people sprites
+# (map-visuals ticket 03). Same 16px/stride-17 geometry as the terrain sheet.
+CHARACTER_TILESET_RELPATH = (
+    "tilesets/kenney_roguelike-characters/Spritesheet/roguelikeChar_transparent.png"
+)
+
 
 def references_dir() -> Path:
     """The repo-root ``references/`` directory (editable-install layout)."""
@@ -33,6 +39,18 @@ def tileset_path() -> Path:
     path = references_dir() / TILESET_RELPATH
     if not path.is_file():
         raise FileNotFoundError(f"tileset spritesheet not found at {path}")
+    return path
+
+
+def character_tileset_path() -> Path:
+    """Absolute path to the Kenney Roguelike Characters spritesheet.
+
+    Raises ``FileNotFoundError`` with a clear message if the asset is missing,
+    so a mis-packaged build fails loudly rather than rendering blank hosts.
+    """
+    path = references_dir() / CHARACTER_TILESET_RELPATH
+    if not path.is_file():
+        raise FileNotFoundError(f"character spritesheet not found at {path}")
     return path
 
 

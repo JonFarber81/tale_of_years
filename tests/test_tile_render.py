@@ -38,6 +38,20 @@ def test_owner_tint_is_translucent():
     assert 0 < owner_tint(1).alpha() < 255
 
 
+def test_people_sprite_cell_is_distinct_per_people_with_fallback():
+    # The army-sprite map (map-visuals 03) is a pure headless lookup: each of the
+    # five folk maps to its own spritesheet cell, and any unknown/missing value
+    # falls back to a cell of its own.
+    from arda_sim.ui.tile_render import people_sprite_cell
+
+    peoples = ["men", "elves", "dwarves", "orcs", "hobbits"]
+    cells = [people_sprite_cell(p) for p in peoples]
+    assert len(set(cells)) == len(peoples)  # a distinct cell per folk
+    fallback = people_sprite_cell("dragons")
+    assert fallback not in cells  # unknown gets its own fallback cell
+    assert people_sprite_cell(None) == fallback
+
+
 # --- view + inspection: need an offscreen QApplication ----------------------
 
 
@@ -83,6 +97,17 @@ def test_tileset_sprite_sheet_loads(qapp):
     assert tileset_path().is_file()
     sheet = _sheet_pixmap()
     assert not sheet.isNull()  # the bundled Kenney sheet actually decoded
+
+
+def test_character_sprite_sheet_loads(qapp):
+    # The host people sprites (map-visuals 03) draw from a second bundled Kenney
+    # pack — the Characters sheet — so verify it ships and decodes too.
+    from arda_sim.ui.assets import character_tileset_path
+    from arda_sim.ui.tile_render import _char_sheet_pixmap
+
+    assert character_tileset_path().is_file()
+    sheet = _char_sheet_pixmap()
+    assert not sheet.isNull()
 
 
 def test_map_view_lays_scene_out_in_tile_pixels(qapp):
@@ -138,6 +163,28 @@ def test_inspection_describes_clicked_tile(qapp):
         window.close()
 
 
+def test_site_labels_are_tier_gated_on_zoom(qapp):
+    # Labels are screen-fixed annotations, so tier gating (label-declutter,
+    # ticket 02) hides the low-rank ones at far zoom to stop them piling up:
+    # cities are always labelled; ruins only appear once zoomed in close.
+    window = build_window("fellowship")
+    try:
+        m = window._map
+        tier0 = [lbl for lbl, tier in m._site_labels if tier == 0]
+        tier2 = [lbl for lbl, tier in m._site_labels if tier == 2]
+        assert tier0 and tier2  # the shipped grid has both cities and ruins
+
+        m.fit_map()  # far: the whole map fits the viewport
+        assert all(not lbl.isVisible() for lbl in tier0)  # ruins culled when far
+        assert all(lbl.isVisible() for lbl in tier2)  # cities always shown
+
+        m._apply_zoom(10_000)  # close: clamped to the zoom-in cap
+        assert all(lbl.isVisible() for lbl in tier0)  # ruins appear up close
+        assert all(lbl.isVisible() for lbl in tier2)  # cities still shown
+    finally:
+        window.close()
+
+
 def test_seeded_factions_paint_territory_with_a_frontier(qapp):
     # Real factions (ticket 07) own regions on the shipped map, so several
     # factions hold ground and a derived frontier exists somewhere.
@@ -154,5 +201,30 @@ def test_seeded_factions_paint_territory_with_a_frontier(qapp):
         assert any(
             grid.is_border(c, r) for r in range(grid.height) for c in range(grid.width)
         )
+    finally:
+        window.close()
+
+
+def test_refresh_armies_draws_one_marker_per_living_host(qapp):
+    # A host marker (map-visuals 03) is a colour disc + people sprite per living
+    # army; disbanded hosts draw nothing, and the layer rebuilds wholesale.
+    from arda_sim.armies import Army
+    from arda_sim.entities import EntityStatus
+
+    window = build_window("fellowship")
+    try:
+        armies = [
+            Army(id=90001, kind="army", name="Host A", created_year=2965, faction_id=1, col=2, row=3,
+                 size=500, status=EntityStatus.ACTIVE.value),
+            Army(id=90002, kind="army", name="Host B", created_year=2965, faction_id=5, col=4, row=6,
+                 size=500, status=EntityStatus.ACTIVE.value),
+            Army(id=90003, kind="army", name="Fallen", created_year=2965, faction_id=2, col=1, row=1,
+                 size=0, status=EntityStatus.DEAD.value),
+        ]
+        window._map.refresh_armies(armies)
+        assert len(window._map._army_items) == 2  # only the two living hosts
+        # Redrawing replaces rather than accumulates.
+        window._map.refresh_armies(armies[:1])
+        assert len(window._map._army_items) == 1
     finally:
         window.close()
