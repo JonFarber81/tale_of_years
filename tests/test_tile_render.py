@@ -124,9 +124,12 @@ def test_refresh_owners_reflects_owner_changes(qapp):
 def test_inspection_describes_clicked_tile(qapp):
     window = build_window("fellowship")
     try:
-        # Minas Tirith: authored site at (52, 62), inside the Gondor-owned block.
-        text = window.describe_tile(52, 62)
-        assert "Tile (52, 62)" in text
+        # Inspect Minas Tirith wherever it is authored (derive the tile from the
+        # site, so the test tracks substrate re-authoring instead of pinning a
+        # coordinate that silently goes stale). It sits in the Gondor-owned block.
+        mt = next(s for s in window._grid.sites if s.name == "Minas Tirith")
+        text = window.describe_tile(mt.col, mt.row)
+        assert f"Tile ({mt.col}, {mt.row})" in text
         assert "Owner: Gondor" in text
         assert "Minas Tirith" in text
     finally:
