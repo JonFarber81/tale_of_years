@@ -270,12 +270,26 @@ def test_inspecting_a_realm_shows_its_diplomacy_block(qapp):
         for snap, evs in window._playback.fast_forward_to(3 * TICKS_PER_YEAR):
             window._on_frontier_changed(window._playback.frontier)
             window._on_tick_advanced(snap, evs)
-        site = window._grid.site_id_of("Minas Tirith")
-        tile = next(s for s in window._grid.sites if s.id == site)
-        text = window.describe_tile(tile.col, tile.row)
-        assert "DIPLOMACY" in text  # the section header rendered
+        # Open owned ground (no site, no host) headlines the faction with full
+        # depth (inspection-ui 02). Find such a Gondor tile.
+        grid = window._grid
+        gondor = next(k for k, v in window._faction_names.items() if v == "Gondor")
+        sited = {(s.col, s.row) for s in grid.sites}
+        col, row = next(
+            (c, r)
+            for r in range(grid.height)
+            for c in range(grid.width)
+            if grid.owner_at(c, r) == gondor and (c, r) not in sited
+        )
+        text = window.describe_tile(col, row)
+        assert "FACTION" in text and "DIPLOMACY" in text  # full depth
         # Gondor's seeded temper surfaces as a non-neutral stance toward Mordor.
         assert "Mordor" in text and "hostility" in text
+        # The stance word wears the war red; the disposition number is dimmed.
+        from arda_sim.ui.mainwindow import _WAR_COLOR
+        from arda_sim.ui.dossier_html import DIM
+
+        assert _WAR_COLOR in text and f'color: {DIM}">(' in text
     finally:
         window.close()
 
@@ -480,10 +494,120 @@ def test_tile_click_renders_html_dossier_into_the_browser(qapp):
         tile = next(s for s in window._grid.sites if s.id == site)
         window._on_tile_clicked(tile.col, tile.row)
         plain = window._inspection.toPlainText()
-        assert "TILE" in plain and f"({tile.col}, {tile.row})" in plain
-        assert "Minas Tirith" in plain  # the site line made it through
+        assert "SITE" in plain and "Minas Tirith" in plain  # the site headlines
         html = window.describe_tile(tile.col, tile.row)
         assert "<table" in html  # genuinely rich text, not escaped plain text
+    finally:
+        window.close()
+
+
+def test_site_subject_gets_trimmed_faction_context(qapp):
+    # A site headlines; its holder demotes to leader + strength + stance line —
+    # no DIPLOMACY/BLOODLINE/RECENT EVENTS sections (inspection-ui 02).
+    window = build_window("fellowship")
+    try:
+        mt = next(s for s in window._grid.sites if s.name == "Minas Tirith")
+        snap, _ = window._playback.advance()
+        window._on_tick_advanced(snap, [])
+        text = window.describe_tile(mt.col, mt.row)
+        assert "SITE" in text and "GONDOR" in text  # holder's context section
+        assert "Leader" in text and "Strength" in text
+        for full_depth_only in ("DIPLOMACY", "BLOODLINE", "RECENT EVENTS"):
+            assert full_depth_only not in text
+    finally:
+        window.close()
+
+
+def test_bare_unowned_tile_stays_short(qapp):
+    window = build_window("fellowship")
+    try:
+        grid = window._grid
+        sited = {(s.col, s.row) for s in grid.sites}
+        from arda_sim.tiles import UNOWNED
+
+        col, row = next(
+            (c, r)
+            for r in range(grid.height)
+            for c in range(grid.width)
+            if grid.owner_at(c, r) == UNOWNED and (c, r) not in sited
+        )
+        text = window.describe_tile(col, row)
+        assert "TILE" in text and f"({col}, {row})" in text
+        assert "unowned" in text
+        assert "FACTION" not in text and "SITE" not in text
+    finally:
+        window.close()
+
+
+def test_host_dossier_shows_siege_progress_only_mid_siege(qapp):
+    from arda_sim.armies import Army
+    from arda_sim.war import fortification
+
+    window = build_window("fellowship")
+    try:
+        mt = next(s for s in window._grid.sites if s.name == "Minas Tirith")
+        host = Army(
+            id=999, kind="army", created_year=3000, name="Host of Test",
+            col=mt.col, row=mt.row, size=500,
+        )
+        assert "Siege" not in window.describe_army(host)  # not investing
+        host.siege_progress = 91
+        text = window.describe_army(host)
+        assert f"91 / {fortification(mt)}" in text  # progress vs the walls
+        assert "Stands" in text and "Minas Tirith" in text  # the locator line
+    finally:
+        window.close()
+
+
+def test_faction_grid_drops_prominence_and_intent(qapp):
+    window = build_window("fellowship")
+    try:
+        snap, _ = window._playback.advance()
+        window._on_tick_advanced(snap, [])
+        faction = next(
+            f
+            for f in snap.entities.values()
+            if f.__class__.__name__ == "Faction" and f.name == "Gondor"
+        )
+        text = window.describe_faction(faction)
+        assert "Treasury" in text  # the grid is there...
+        assert "Prominence" not in text and "Latest intent" not in text
+    finally:
+        window.close()
+
+
+def test_stance_words_wear_the_feed_colors(qapp):
+    from arda_sim.factions import Faction
+    from arda_sim.ui.mainwindow import (
+        MainWindow,
+        _AMITY_COLOR,
+        _FEALTY_COLOR,
+        _WAR_COLOR,
+    )
+
+    ally = Faction(
+        id=1, kind="faction", created_year=3000, name="A", at_war_with=[2]
+    )
+    at_war = MainWindow._stance_html(ally, 2, "hostility")
+    assert "at war" in at_war and _WAR_COLOR in at_war and "<b" in at_war  # bold red
+    hostile = MainWindow._stance_html(ally, 3, "hostility")
+    assert "hostility" in hostile and _WAR_COLOR in hostile and "<b" not in hostile
+    assert _AMITY_COLOR in MainWindow._stance_html(ally, 3, "alliance")
+    assert _FEALTY_COLOR in MainWindow._stance_html(ally, 3, "vassalage")
+
+
+def test_recent_event_lines_wear_bucket_dots(qapp):
+    from arda_sim.ui.annals_style import BUCKET_COLORS
+    from arda_sim.ui.dossier_html import DIM
+
+    window = build_window("fellowship")
+    try:
+        line = window._event_line(
+            Event(id=1, year=3010, type="battle", text="a battle was joined")
+        )
+        assert "●" in line and BUCKET_COLORS["war"].name() in line
+        neutral = window._event_line(Event(id=2, year=3010, type="mystery"))
+        assert DIM in neutral  # unmapped types dot in the neutral gray
     finally:
         window.close()
 

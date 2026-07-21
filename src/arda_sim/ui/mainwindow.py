@@ -31,7 +31,8 @@ from PySide6.QtWidgets import (
 from .. import START_YEAR
 from ..armies import Army
 from ..characters import Character, render_bloodline
-from ..diplomacy import NEUTRALITY, stance
+from ..diplomacy import ALLIANCE, NEUTRALITY, VASSALAGE, stance
+from ..war import fortification
 from ..chronicle import AnnalsFilter, pulse_events, show_all_filter
 from ..entities import Event
 from ..factions import Faction
@@ -44,19 +45,31 @@ from .annals_style import (
     BUCKET_COLORS,
     BUCKET_LABELS,
     BUCKETS,
+    CONSTRUCTION,
+    DYNASTY,
+    WAR,
     AnnalsDelegate,
+    bucket_of,
     types_in_bucket,
 )
 from . import tile_render
 from .dossier_html import (
+    DIM,
     NEUTRAL_ACCENT,
     banner,
+    esc,
     para,
     pre_block,
     section,
     stat_grid,
-    text_lines,
 )
+
+# Stance words wear the feed's color vocabulary (inspection-ui ticket 03):
+# war-red for open war and hostility, the peaceable green for alliance/treaty,
+# the dynasty purple for fealty bonds.
+_WAR_COLOR = BUCKET_COLORS[WAR].name()
+_AMITY_COLOR = BUCKET_COLORS[CONSTRUCTION].name()
+_FEALTY_COLOR = BUCKET_COLORS[DYNASTY].name()
 from .event_dossier import render_event_dossier
 from .map_view import MapView
 from .sim_worker import SimWorker
@@ -322,41 +335,49 @@ class MainWindow(QMainWindow):
         self._inspection.setHtml(self.describe_tile(col, row))
 
     def describe_tile(self, col: int, row: int) -> str:
-        """The tile dossier (HTML) for the inspection dock.
+        """The dossier (HTML) a map click renders, most-specific-first.
 
-        An owned tile appends its owning faction's dossier (state + recent
-        events), so clicking anywhere in a realm inspects the power that holds
-        it. (Ticket 01 keeps today's stacking order; the most-specific-first
-        restructure is ticket 02.)
+        The click resolves to one **dossier subject** — a host standing on the
+        tile, else a site there, else the owning faction, else the bare tile
+        (see CONTEXT.md) — which headlines with full depth; anything else
+        renders only as trimmed context beneath it.
         """
-        grid = self._grid
-        terrain = grid.terrain_at(col, row)
-        owner = grid.owner_at(col, row)
-        region = grid.region_at(col, row)
-        owner_label = (
-            "unowned"
-            if owner == UNOWNED
-            else self._faction_names.get(owner, f"faction {owner}")
-        )
-        accent = self._owner_accent(owner)
-        stats = [
-            ("Terrain", terrain),
-            ("Owner", owner_label),
-            ("Region", region.name if region else "—"),
-        ]
-        for site in grid.sites:
-            if site.col == col and site.row == row:
-                rank = f", tier {site.tier}" if site.tier else ""
-                stats.append(("Site", f"{site.name} ({site.kind}{rank})"))
-        parts = [banner("Tile", f"({col}, {row})", accent), stat_grid(stats)]
         host = self._army_on(col, row)
         if host is not None:
-            parts.append(self.describe_army(host))
+            return self.describe_army(host)
+        site = next(
+            (s for s in self._grid.sites if s.col == col and s.row == row), None
+        )
+        if site is not None:
+            return self.describe_site(site)
+        owner = self._grid.owner_at(col, row)
         if owner != UNOWNED:
             faction = self._faction(owner)
             if faction is not None:
-                parts.append(self.describe_faction(faction))
-        return "".join(parts)
+                return self.describe_faction(faction) + self._ground_line(col, row)
+        return self._describe_bare_tile(col, row)
+
+    def _describe_bare_tile(self, col: int, row: int) -> str:
+        """Unowned, unsettled, unoccupied ground — the boring case stays short."""
+        grid = self._grid
+        region = grid.region_at(col, row)
+        return banner("Tile", f"({col}, {row})") + stat_grid(
+            [
+                ("Terrain", grid.terrain_at(col, row)),
+                ("Region", region.name if region else "—"),
+                ("Owner", "unowned"),
+            ]
+        )
+
+    def _ground_line(self, col: int, row: int) -> str:
+        """A dim locator for the clicked ground under a faction-subject dossier."""
+        grid = self._grid
+        region = grid.region_at(col, row)
+        where = f" in {region.name}" if region else ""
+        return para(
+            f'<span style="color: {DIM}">Ground: '
+            f"{esc(grid.terrain_at(col, row))}{esc(where)} ({col}, {row})</span>"
+        )
 
     def _owner_accent(self, faction_id: int) -> str:
         """The identity accent for a faction's dossier (neutral if unowned)."""
@@ -389,12 +410,12 @@ class MainWindow(QMainWindow):
         return None
 
     def describe_army(self, army: Army) -> str:
-        """A host dossier (HTML) for the inspection dock: leader, size, destination."""
+        """A host-subject dossier (HTML): strength first, siege when investing,
+        a locator for where it stands, and its faction as trimmed context."""
         leader = None
         if army.leader_id is not None and self._latest_snapshot is not None:
             leader = self._latest_snapshot.entity(army.leader_id)
         faction = self._faction(army.faction_id) if army.faction_id else None
-        faction_name = faction.name if faction is not None else "—"
         if army.dest_site_id is not None:
             dest_site = self._grid.site_by_id(army.dest_site_id)
             destination = dest_site.name if dest_site is not None else "the field"
@@ -403,21 +424,112 @@ class MainWindow(QMainWindow):
         accent = (
             self._owner_accent(army.faction_id) if army.faction_id else NEUTRAL_ACCENT
         )
-        return banner("Host", army.name, accent) + stat_grid(
-            [
-                ("Faction", faction_name),
-                ("Leader", leader.name if leader else "— (leaderless)"),
-                ("Strength", army.size),
-                ("Destination", destination),
-            ]
+        stats = [
+            ("Strength", army.size),  # the hero stat leads
+            ("Leader", leader.name if leader else "— (leaderless)"),
+            ("Faction", faction.name if faction is not None else "—"),
+            ("Destination", destination),
+        ]
+        # A host investing a seat shows the drama the map can't: how far the
+        # walls have been worn down (Army.siege_progress was invisible before).
+        seat = next(
+            (s for s in self._grid.sites if s.col == army.col and s.row == army.row),
+            None,
         )
+        if army.siege_progress > 0 and seat is not None:
+            stats.insert(1, ("Siege", f"{army.siege_progress} / {fortification(seat)}"))
+        parts = [banner("Host", army.name, accent), stat_grid(stats)]
+        parts.append(self._host_locator(army, seat))
+        if faction is not None:
+            parts.append(self._faction_context(faction))
+        return "".join(parts)
+
+    def _host_locator(self, army: Army, seat) -> str:
+        """One dim line placing the host: seat, region, and whose land it is."""
+        grid = self._grid
+        region = grid.region_at(army.col, army.row)
+        owner = grid.owner_at(army.col, army.row)
+        bits = []
+        if seat is not None:
+            bits.append(f"at {seat.name}")
+        if region is not None:
+            bits.append(f"in {region.name}")
+        if owner != UNOWNED:
+            bits.append(f"land of {self._faction_names.get(owner, f'faction {owner}')}")
+        where = ", ".join(bits) if bits else f"at ({army.col}, {army.row})"
+        return para(f'<span style="color: {DIM}">Stands {esc(where)}</span>')
+
+    def describe_site(self, site) -> str:
+        """A site-subject dossier (HTML): rank, ground, and the holder as context."""
+        owner = self._grid.owner_at(site.col, site.row)
+        rank = site.kind.title()
+        if site.tier:
+            rank = f"{rank} · tier {site.tier}"
+        region = self._grid.region_at(site.col, site.row)
+        parts = [
+            banner("Site", site.name, self._owner_accent(owner)),
+            stat_grid(
+                [
+                    ("Rank", rank),
+                    (
+                        "Owner",
+                        "unowned"
+                        if owner == UNOWNED
+                        else self._faction_names.get(owner, f"faction {owner}"),
+                    ),
+                    ("Region", region.name if region else "—"),
+                    ("Terrain", self._grid.terrain_at(site.col, site.row)),
+                ]
+            ),
+        ]
+        if owner != UNOWNED:
+            faction = self._faction(owner)
+            if faction is not None:
+                parts.append(self._faction_context(faction))
+        return "".join(parts)
+
+    def _faction_context(self, faction: Faction) -> str:
+        """The trimmed faction section under a host/site subject: leader,
+        strength, and a one-line stance summary — full depth is one click
+        away on the realm's open ground."""
+        leader = None
+        if faction.leader_id is not None and self._latest_snapshot is not None:
+            leader = self._latest_snapshot.entity(faction.leader_id)
+        parts = [
+            section(faction.name),
+            stat_grid(
+                [
+                    ("Leader", leader.name if leader else "—"),
+                    ("Strength", faction.military_strength),
+                ]
+            ),
+        ]
+        summary = self._stance_summary(faction)
+        if summary:
+            parts.append(para(f'<span style="color: {DIM}">{esc(summary)}</span>'))
+        return "".join(parts)
+
+    def _stance_summary(self, faction: Faction) -> Optional[str]:
+        """One line of the bonds that matter: wars, treaties, fealty."""
+        names = self._faction_names
+        bits: List[str] = []
+        wars = sorted(names.get(f, str(f)) for f in faction.at_war_with)
+        if wars:
+            bits.append(f"at war with {', '.join(wars)}")
+        treaties = sorted(names.get(f, str(f)) for f in faction.treaties)
+        if treaties:
+            bits.append(f"treaty with {', '.join(treaties)}")
+        if faction.overlord_faction_id is not None:
+            bits.append(f"vassal of {names.get(faction.overlord_faction_id, '—')}")
+        return " · ".join(bits) if bits else None
 
     def describe_faction(self, faction: Faction) -> str:
         """A faction dossier (HTML): banner, stats, then the deep sections."""
         leader = None
         if faction.leader_id is not None and self._latest_snapshot is not None:
             leader = self._latest_snapshot.entity(faction.leader_id)
-        intent = faction.current_intent.get("intent", "—")
+        # Prominence and the yearly intent are sim internals — dropped from the
+        # grid by decision; intent still reads via faction-intent events below.
         parts = [
             banner(
                 f"Faction · {faction.faction_kind}",
@@ -431,15 +543,13 @@ class MainWindow(QMainWindow):
                     ("Posture", f"{faction.posture}   ·   {faction.aggression}"),
                     ("Strength", faction.military_strength),
                     ("Treasury", faction.treasury),
-                    ("Prominence", faction.prominence),
-                    ("Latest intent", intent),
                 ]
             ),
         ]
-        diplomacy = self._describe_diplomacy(faction)
-        if diplomacy:
+        diplomacy_lines = self._describe_diplomacy(faction)
+        if diplomacy_lines:
             parts.append(section("Diplomacy"))
-            parts.append(text_lines(diplomacy))
+            parts.append(para("<br>".join(diplomacy_lines)))
         bloodline = self._describe_bloodline(leader)
         if bloodline:
             parts.append(section("Bloodline"))
@@ -452,26 +562,37 @@ class MainWindow(QMainWindow):
         if recent:
             parts.append(section("Recent events"))
             parts.append(
-                text_lines(
-                    "\n".join(
-                        f"TA {ev.year}: {ev.text or ev.type}"
-                        for ev in reversed(recent)  # newest first
+                para(
+                    "<br>".join(
+                        self._event_line(ev) for ev in reversed(recent)  # newest first
                     )
                 )
             )
         return "".join(parts)
 
-    def _describe_diplomacy(self, faction: Faction) -> Optional[str]:
-        """This faction's standing toward others, as of the displayed year.
+    def _event_line(self, event: Event) -> str:
+        """A recent-events line wearing its bucket color as a leading dot,
+        so the mini-history reads consistently with the annals feed."""
+        color = BUCKET_COLORS.get(bucket_of(event.type))
+        dot = (
+            f'<span style="color: {color.name() if color else DIM}">●</span> '
+        )
+        return f"{dot}TA {event.year}: {esc(event.text or event.type)}"
 
-        Shows the fealty bonds (overlord, vassals) and every non-neutral stance,
-        each with the raw disposition scalar. Read off the snapshot faction, so it
-        reflects the scrubbed year, not the live world.
+    def _describe_diplomacy(self, faction: Faction) -> Optional[List[str]]:
+        """This faction's standing toward others, as HTML lines (or None).
+
+        Shows the fealty bonds (overlord, vassals) and every non-neutral stance
+        — stance words colored, the raw disposition scalar dimmed after. Read
+        off the snapshot faction, so it reflects the scrubbed year, not the
+        live world.
         """
         names = self._faction_names
         lines: List[str] = []
+        fealty = f'color: {_FEALTY_COLOR}'
         if faction.overlord_faction_id is not None:
-            lines.append(f"Overlord: {names.get(faction.overlord_faction_id, '—')}")
+            overlord = esc(names.get(faction.overlord_faction_id, "—"))
+            lines.append(f'Overlord: <span style="{fealty}">{overlord}</span>')
         if self._latest_snapshot is not None:
             vassals = sorted(
                 names.get(e.id, str(e.id))
@@ -479,7 +600,8 @@ class MainWindow(QMainWindow):
                 if isinstance(e, Faction) and e.overlord_faction_id == faction.id
             )
             if vassals:
-                lines.append(f"Vassals: {', '.join(vassals)}")
+                joined = esc(", ".join(vassals))
+                lines.append(f'Vassals: <span style="{fealty}">{joined}</span>')
         related = (
             set(faction.at_war_with)
             | set(faction.treaties)
@@ -493,10 +615,24 @@ class MainWindow(QMainWindow):
             if label == NEUTRALITY:
                 continue
             disp = faction.disposition_toward(other_id)
-            lines.append(f"{names.get(other_id, other_id)}: {label} ({disp:+d})")
-        if not lines:
-            return None
-        return "\n".join(lines)
+            lines.append(
+                f"{esc(names.get(other_id, other_id))}: "
+                f"{self._stance_html(faction, other_id, label)} "
+                f'<span style="color: {DIM}">({disp:+d})</span>'
+            )
+        return lines or None
+
+    @staticmethod
+    def _stance_html(faction: Faction, other_id: int, label: str) -> str:
+        """The stance word in the feed's colors: open war reads bold red,
+        mere hostility red, alliance green, vassalage purple."""
+        if other_id in faction.at_war_with:
+            return f'<b style="color: {_WAR_COLOR}">at war</b>'
+        color = {
+            ALLIANCE: _AMITY_COLOR,
+            VASSALAGE: _FEALTY_COLOR,
+        }.get(label, _WAR_COLOR)
+        return f'<span style="color: {color}">{esc(label)}</span>'
 
     def _describe_bloodline(self, leader: Optional[object]) -> Optional[str]:
         """The ruling leader's bloodline (dynasty view) as of the displayed year.
