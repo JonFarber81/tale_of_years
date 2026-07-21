@@ -424,11 +424,24 @@ def _advance(world: World, grid: TileGrid, army: Army) -> List[Event]:
     return events
 
 
-def _step_along_path(grid: TileGrid, army: Army) -> None:
-    """Spend this tick's budget to walk as far along ``path`` as it reaches."""
-    points = army.move_points + tick_speed(army.miles_per_year, grid.miles_per_tile)
-    col, row = army.col, army.row
-    remaining = [list(tile) for tile in army.path]
+def step_along_path(
+    grid: TileGrid,
+    col: int,
+    row: int,
+    path: List[List[int]],
+    move_points: int,
+    miles_per_year: int,
+) -> Tuple[int, int, List[List[int]], int]:
+    """Walk a tile-mover one tick along ``path`` on a miles/year budget.
+
+    Pure and reusable: given a position, its remaining path, its carried budget and
+    its pace, it spends this tick's effort against tile enter-costs and returns the
+    new ``(col, row, remaining_path, leftover_points)``. The remaining path is a
+    fresh list (snapshot-safe). Shared by the marching host (:func:`_step_along_path`)
+    and the One Ring's errand, so the two can never price a step differently.
+    """
+    points = move_points + tick_speed(miles_per_year, grid.miles_per_tile)
+    remaining = [list(tile) for tile in path]
     while remaining:
         nc, nr = remaining[0]
         cost = _enter_cost(grid, nc, nr)
@@ -437,9 +450,14 @@ def _step_along_path(grid: TileGrid, army: Army) -> None:
         points -= cost
         col, row = nc, nr
         remaining.pop(0)
-    army.col, army.row = col, row
-    army.move_points = points
-    army.path = remaining  # fresh list (snapshot-safe)
+    return col, row, remaining, points
+
+
+def _step_along_path(grid: TileGrid, army: Army) -> None:
+    """Spend this tick's budget to walk the host as far along ``path`` as it reaches."""
+    army.col, army.row, army.path, army.move_points = step_along_path(
+        grid, army.col, army.row, army.path, army.move_points, army.miles_per_year
+    )
 
 
 def _attrition(world: World, grid: TileGrid, army: Army) -> int:
