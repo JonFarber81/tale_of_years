@@ -78,9 +78,11 @@ class World:
     # The tile substrate for this run, attached as a *live* handle (like ``rng``):
     # it is never serialized into the world state — terrain/regions are config and
     # per-tile ownership persists separately (RLE, ticket 12). Set by the seeding
-    # entry point and re-attached on load, so a phase system can reach territory
-    # through ``world.grid`` without widening the ``system(world, rng)`` signature
-    # (see ADR-0004). ``None`` in headless/skeleton runs that carry no map.
+    # entry point so a phase system can reach territory through ``world.grid``
+    # without widening the ``system(world, rng)`` signature (see ADR-0004).
+    # ``None`` in headless/skeleton runs that carry no map — and, until ticket 12
+    # persists and re-attaches the owner grid, on a *reloaded* world too (the
+    # succession phase then degrades to heir-resolution, skipping the grid branch).
     grid: Optional[TileGrid] = field(default=None, compare=False, repr=False)
 
     @property

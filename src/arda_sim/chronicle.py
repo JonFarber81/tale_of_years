@@ -256,7 +256,7 @@ def _render_succession(ctx: _RenderContext, event: Event) -> str:
     title = payload.get("title")
     as_title = f" as {title}" if title else ""
     former_id = payload.get("former_leader_id")
-    if former_id:
+    if former_id is not None:
         return f"{heir} succeeded {ctx.name(former_id)}{as_title}."
     realm = ctx.name(subjects[1]) if len(subjects) >= 2 else "the realm"
     return f"{heir} took up the rule of {realm}{as_title}."
