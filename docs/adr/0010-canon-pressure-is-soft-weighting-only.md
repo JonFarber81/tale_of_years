@@ -23,8 +23,10 @@ Consequences worth recording:
 - **A derived RNG, like the Ring's.** Every stochastic choice the Sauron phase
   makes draws from `make_rng(f"{seed}|sauron|{tick}")`, never the shared stream
   (ADR-0008's pattern). Turning canonicity up or down therefore changes *which
-  intents win* and *which soft rolls pass* — never the draw count any battle die
-  sees. Two runs differing only in canonicity diverge, but no clash is rigged.
+  intents win* and *which soft rolls pass*; no battle roll is ever scaled or
+  overridden by it. (Downstream, a canonicity-shifted decision — a pact that now
+  forms, a hunt that now rides — legitimately changes what later phases draw:
+  the divergence flows through decisions, never through a rigged die.)
 - **The hunt moves; the Ring phase seizes.** The Nazgûl hunt is a `Hunt` entity
   (a transient tile-mover like an Army) advanced in its own pipeline slot between
   movement and war. It *reads* the Ring's `pull` and tile and never writes the
@@ -36,6 +38,12 @@ Consequences worth recording:
   `destroyed`, Mordor extinguished through the ordinary war seam over subsequent
   ticks); the flags are the cheap world-transition switches later systems and
   the UI read without scanning the log.
-- **One-tick lag by construction.** Phase 7 only writes scalars; phases 2–4
-  consume them the *next* tick (musters, provider commitment, hunt activation,
-  pull decay), per the spec's phase-flow contract.
+- **One-tick lag by construction.** Phase 7 never musters, moves, or fights: it
+  writes the strength scalar, nudges provider commitment and canon roles, and —
+  after the destroyed terminal — unwinds the dark realm's territory. Phases 2–4
+  consume the scalar the *next* tick (musters, hunt activation, pull decay), per
+  the spec's phase-flow contract.
+- **"Pull-rise weighting" is implemented as decay slowdown.** The Ring alone
+  writes `pull`; Sauron's strength therefore weights how slowly it *ebbs*
+  (a strong Shadow's gaze lingers) rather than adding a second writer to the
+  spikes — the same net "his rise keeps the Ring loud", single-writer intact.
