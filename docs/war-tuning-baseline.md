@@ -33,3 +33,33 @@ destroy floor). One century, four seeds:
 **Directional targets after #13** (calibrated, not hard thresholds): decisive
 battles into the low single digits per century, median host size up several-fold,
 ~all hosts led, few concurrent standing hosts.
+
+## After #13 (tuned)
+
+Same command and seeds, against the shipped retuning (coalition Gathering, muster
+cadence, shared-tile-only + proportional-destruction battles, can-fail evasion,
+leader ladder). One century:
+
+| seed            | musters | battles | decisive | conquests | destroyed | median size | led |
+|-----------------|--------:|--------:|---------:|----------:|----------:|------------:|----:|
+| fellowship      |      10 |       1 |        0 |         2 |         6 |        8540 | 100%|
+| war-of-the-ring |      10 |       0 |        0 |         2 |         6 |        8540 | 100%|
+| third-age       |      10 |       1 |        0 |         2 |         6 |        8540 | 100%|
+| great-war       |      10 |       1 |        1 |         2 |         7 |        8540 | 100%|
+
+**What changed vs. baseline:**
+
+- **Musters ~580 → ~10 a century.** Hosts are episodic, not annual: the at-war gate
+  plus a size-scaled cooldown keep realms out of the field between campaigns.
+- **Median host size 500 → ~8540 (≈17×).** Coalition summing plus the tuned levy
+  constants make each host a heavy war-effort.
+- **0% → 100% led.** The leader ladder (non-heir → heir → generated captain, and a
+  captain for provider hosts too) means no host marches leaderless.
+- **Decisive engagements are now a handful, not dozens.** Field battles are rare
+  (shared-tile-only) — most war resolves as **~2 decisive conquests a century** via
+  siege; when a pitched battle does fire, proportional destruction can shatter a host
+  and end a war in one stroke.
+- **Evasion** is built and tested but rarely *fires* in canon runs: field encounters
+  are scarce and most clashes are at seats (where a defender is besieged and cannot
+  flee), so it triggers only when an outmatched host is caught in the open. It
+  remains a real, deterministic, can-fail mechanism (see the war tests).

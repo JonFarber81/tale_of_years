@@ -459,7 +459,7 @@ def _coalition_leader(
     heir = _ablest(world, faction_ids, excluded, (Role.HEIR.value,))
     if heir is not None:
         return heir
-    return _generate_captain(world, lead)
+    return generate_captain(world, lead)
 
 
 def _ablest(
@@ -493,7 +493,7 @@ _CAPTAIN_TRAIT_BASE = 45
 _CAPTAIN_TRAIT_SPREAD = 30
 
 
-def _generate_captain(world: World, lead: Faction) -> Character:
+def generate_captain(world: World, lead: Faction) -> Character:
     """Raise a generated named captain to lead ``lead``'s host — the ladder's floor.
 
     A non-dynastic character (no parents, outside the succession/kinship line) with

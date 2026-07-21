@@ -48,6 +48,7 @@ from .armies import (
     armies,
     end_host,
     find_path,
+    generate_captain,
     host_cooldown_years,
 )
 from .characters import Character, DEATH_EVENT
@@ -672,15 +673,18 @@ def _spawn_provider_host(
                 dest_site_id = enemy.capital_location_id
                 path = candidate
     size = max(1, provider.commitment) * 20
+    captain = generate_captain(world, provider)  # a provider host marches led too
     army = Army(
         id=world.next_id(),
         kind="army",
         name=f"Host of the {provider.name}",
         created_year=world.current_year,
         faction_id=provider.id,
+        leader_id=captain.id,
         col=gateway[0],
         row=gateway[1],
         size=size,
+        mustered_size=size,
         target_faction_id=enemy.id if (enemy is not None and path) else None,
         dest_site_id=dest_site_id,
         path=path,
@@ -689,12 +693,12 @@ def _spawn_provider_host(
         prominence=provider.prominence,
     )
     world.entities[army.id] = army
-    payload: Dict[str, object] = {"size": size, "faction_id": provider.id, "led": False}
+    payload: Dict[str, object] = {"size": size, "faction_id": provider.id, "led": True}
     if army.target_faction_id is not None:
         payload["target_faction_id"] = army.target_faction_id
     return world.new_event(
         type=ARMY_MUSTERED_EVENT,
-        subject_ids=[army.id, provider.id],
+        subject_ids=[army.id, provider.id, captain.id],
         location_id=provider.gateway_location_id,
         payload=payload,
     )
