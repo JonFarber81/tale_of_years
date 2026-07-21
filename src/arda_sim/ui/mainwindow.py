@@ -94,12 +94,16 @@ class MainWindow(QMainWindow):
         playback: Playback,
         grid: TileGrid,
         faction_names: Optional[Dict[int, str]] = None,
+        faction_people: Optional[Dict[int, str]] = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
         self._playback = playback
         self._grid = grid
         self._faction_names = faction_names or {}
+        # faction id -> people string, forwarded to the map so host markers can
+        # draw their folk's sprite over the faction colour (map-visuals 03).
+        self._faction_people = faction_people or {}
         # Latest renderable state + the accumulated event stream, so tile/faction
         # inspection reads from snapshots and the feed, never the live world.
         self._latest_snapshot: Optional[Snapshot] = None
@@ -112,7 +116,7 @@ class MainWindow(QMainWindow):
         self._frontier = -1
         self.setWindowTitle("The Tale of Years — the Third Age unfolds")
 
-        self._map = MapView(grid, self)
+        self._map = MapView(grid, self._faction_people, self)
         self._map.tileClicked.connect(self._on_tile_clicked)
         self.setCentralWidget(self._map)
         self._build_toolbar()

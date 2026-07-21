@@ -55,6 +55,25 @@ class FactionKind(str, Enum):
         return self.value
 
 
+class People(str, Enum):
+    """The broad folk a faction belongs to (CONTEXT.md "People").
+
+    World-truth about the faction itself, not its army's composition, and
+    independent of ``faction_kind`` — Isengard in TA 2965 is ``men`` (Saruman's
+    holding, no Uruk-hai yet). Authored at seed on every faction, providers
+    included; the army-sprite renderer (map-visuals ticket 03) reads it.
+    """
+
+    MEN = "men"
+    ELVES = "elves"
+    DWARVES = "dwarves"
+    ORCS = "orcs"
+    HOBBITS = "hobbits"
+
+    def __str__(self) -> str:
+        return self.value
+
+
 class SuccessionRule(str, Enum):
     """How a realm chooses the next holder of its ``leader_id`` when the seat
     falls vacant (build ticket 08). The rule is resolved by the succession phase,
@@ -134,6 +153,10 @@ class Faction(Entity):
     """
 
     faction_kind: str = FactionKind.REALM.value
+    # The broad folk this faction is (CONTEXT.md "People"); string-backed like the
+    # other enum fields so it round-trips through canonical JSON. World-truth, not
+    # army composition — read by the army-sprite renderer (map-visuals ticket 03).
+    people: str = People.MEN.value
     succession_rule: str = SuccessionRule.AGNATIC_PRIMOGENITURE.value
     leader_id: Optional[int] = None
     capital_location_id: Optional[int] = None
@@ -254,6 +277,7 @@ def add_faction(
     name: str,
     kind: FactionKind,
     *,
+    people: People = People.MEN,
     succession_rule: SuccessionRule = SuccessionRule.AGNATIC_PRIMOGENITURE,
     leader_id: Optional[int] = None,
     capital_location_id: Optional[int] = None,
@@ -284,6 +308,7 @@ def add_faction(
         created_year=world.current_year,
         status=status,
         faction_kind=kind.value if isinstance(kind, FactionKind) else kind,
+        people=people.value if isinstance(people, People) else people,
         succession_rule=(
             succession_rule.value
             if isinstance(succession_rule, SuccessionRule)
@@ -475,6 +500,7 @@ class _FactionSeed:
 
     name: str
     kind: FactionKind
+    people: People = People.MEN
     succession_rule: SuccessionRule = SuccessionRule.AGNATIC_PRIMOGENITURE
     leader: Optional[str] = None
     capital: Optional[str] = None
@@ -500,7 +526,8 @@ class _FactionSeed:
 # (owner_faction_id = None) — no sentinel faction inflates the map.
 _ROSTER: tuple = (
     _FactionSeed(
-        "Gondor", FactionKind.REALM, succession_rule=SuccessionRule.STEWARDSHIP,
+        "Gondor", FactionKind.REALM, people=People.MEN,
+        succession_rule=SuccessionRule.STEWARDSHIP,
         leader="Ecthelion II", capital="Minas Tirith",
         aggression=45, posture=Posture.DEFENSIVE,
         regions=("Gondor", "Anórien", "Ithilien", "Lebennin", "Belfalas",
@@ -510,7 +537,8 @@ _ROSTER: tuple = (
         treasury=60,
     ),
     _FactionSeed(
-        "Rohan", FactionKind.REALM, leader="Thengel", capital="Edoras",
+        "Rohan", FactionKind.REALM, people=People.MEN,
+        leader="Thengel", capital="Edoras",
         aggression=50, posture=Posture.DEFENSIVE,
         regions=("Rohan", "Westemnet", "Eastemnet", "The Wold"),
         goals=("muster", "guard_the_fords"),
@@ -518,14 +546,18 @@ _ROSTER: tuple = (
         treasury=30,
     ),
     _FactionSeed(
-        "Dúnedain of the North", FactionKind.REALM, leader="Aragorn",
+        "Dúnedain of the North", FactionKind.REALM, people=People.MEN,
+        leader="Aragorn",
         aggression=35, posture=Posture.NEUTRAL,
         claims=("North Downs", "Arthedain", "Cardolan", "Evendim"),
         goals=("muster", "restore_arnor"),
         disposition=(("Mordor", -90),),
     ),
     _FactionSeed(
-        "Isengard", FactionKind.REALM, leader="Saruman", capital="Isengard",
+        # people=men is deliberate: TA 2965, before the Uruk-hai — world-truth
+        # beats villain styling. Do not "fix" this to orcs.
+        "Isengard", FactionKind.REALM, people=People.MEN,
+        leader="Saruman", capital="Isengard",
         aggression=55, posture=Posture.NEUTRAL,
         regions=("Nan Curunír",),  # Saruman's vale — his own holding, not Rohan's
         goals=("build", "study_the_enemy"),
@@ -533,7 +565,8 @@ _ROSTER: tuple = (
         treasury=40,
     ),
     _FactionSeed(
-        "Mordor", FactionKind.REALM, leader="Sauron", capital="Barad-dûr",
+        "Mordor", FactionKind.REALM, people=People.ORCS,
+        leader="Sauron", capital="Barad-dûr",
         aggression=95, posture=Posture.AGGRESSIVE,
         regions=("Mordor", "Gorgoroth", "Nurn", "Udûn", "Dagorlad", "Lithlad"),
         goals=("attack", "dominate_middle_earth"),
@@ -542,14 +575,15 @@ _ROSTER: tuple = (
         treasury=80,
     ),
     _FactionSeed(
-        "Dol Guldur", FactionKind.REALM, leader=None, capital="Dol Guldur",
+        "Dol Guldur", FactionKind.REALM, people=People.ORCS,
+        leader=None, capital="Dol Guldur",
         overlord="Mordor", aggression=80, posture=Posture.AGGRESSIVE,
         regions=("Mirkwood", "Brown Lands"),
         goals=("attack", "break_lorien"),
         disposition=(("Lothlórien", -90), ("Woodland Realm", -80)),
     ),
     _FactionSeed(
-        "Durin's Folk", FactionKind.REALM,
+        "Durin's Folk", FactionKind.REALM, people=People.DWARVES,
         succession_rule=SuccessionRule.DWARF_LINE_OF_DURIN,
         leader="Dáin II Ironfoot", capital="Erebor",
         aggression=45, posture=Posture.DEFENSIVE,
@@ -559,7 +593,8 @@ _ROSTER: tuple = (
         treasury=90,
     ),
     _FactionSeed(
-        "Dale", FactionKind.REALM, leader="Bard I", capital="Dale",
+        "Dale", FactionKind.REALM, people=People.MEN,
+        leader="Bard I", capital="Dale",
         aggression=35, posture=Posture.DEFENSIVE,
         regions=("Dale",),
         goals=("build", "trade_with_erebor"),
@@ -567,47 +602,53 @@ _ROSTER: tuple = (
         treasury=40,
     ),
     _FactionSeed(
-        "Rivendell", FactionKind.REALM, leader="Elrond", capital="Rivendell",
+        "Rivendell", FactionKind.REALM, people=People.ELVES,
+        leader="Elrond", capital="Rivendell",
         aggression=20, posture=Posture.WITHDRAWING,
         regions=("Trollshaws",),
         goals=("fortify", "keep_the_hidden_valley"),
         disposition=(("Mordor", -70), ("Dúnedain of the North", 70)),
     ),
     _FactionSeed(
-        "Lothlórien", FactionKind.REALM, leader="Galadriel", capital="Caras Galadhon",
+        "Lothlórien", FactionKind.REALM, people=People.ELVES,
+        leader="Galadriel", capital="Caras Galadhon",
         aggression=25, posture=Posture.WITHDRAWING,
         regions=("Lórien",),
         goals=("fortify", "guard_the_golden_wood"),
         disposition=(("Dol Guldur", -90), ("Mordor", -70)),
     ),
     _FactionSeed(
-        "Woodland Realm", FactionKind.REALM, leader="Thranduil",
+        "Woodland Realm", FactionKind.REALM, people=People.ELVES,
+        leader="Thranduil",
         capital="Thranduil's Halls", aggression=35, posture=Posture.WITHDRAWING,
         regions=("Woodland Realm",),
         goals=("fortify", "cleanse_the_forest"),
         disposition=(("Dol Guldur", -80),),
     ),
     _FactionSeed(
-        "Grey Havens", FactionKind.CULTURE, leader="Círdan", capital="Grey Havens",
+        "Grey Havens", FactionKind.CULTURE, people=People.ELVES,
+        leader="Círdan", capital="Grey Havens",
         aggression=10, posture=Posture.WITHDRAWING,
         regions=("Lindon", "Forlindon", "Harlindon"),
         goals=("build", "make_ready_the_ships"),
     ),
     _FactionSeed(
-        "The Shire", FactionKind.CULTURE, leader=None, capital="Michel Delving",
+        "The Shire", FactionKind.CULTURE, people=People.HOBBITS,
+        leader=None, capital="Michel Delving",
         aggression=5, posture=Posture.NEUTRAL,
         regions=("The Shire",),
         goals=("build", "keep_the_peace"),
     ),
     _FactionSeed(
-        "Bree-land", FactionKind.CULTURE, leader=None, capital="Bree",
+        "Bree-land", FactionKind.CULTURE, people=People.MEN,
+        leader=None, capital="Bree",
         aggression=8, posture=Posture.NEUTRAL,
         regions=("Bree-land",),  # Bree and its villages — its own ground, not the Shire's
         goals=("build",),
     ),
     _FactionSeed(
-        "Dunland", FactionKind.CULTURE, leader=None,
-        aggression=45, posture=Posture.NEUTRAL,
+        "Dunland", FactionKind.CULTURE, people=People.MEN,
+        leader=None, aggression=45, posture=Posture.NEUTRAL,
         regions=("Dunland",),
         goals=("muster", "raid_the_horse_lords"),
         disposition=(("Rohan", -60),),
@@ -615,22 +656,26 @@ _ROSTER: tuple = (
     # Off-map providers — gateway peoples, chiefly leaning to Mordor under canon
     # pressure. They own no ground and take no phase-2 turn.
     _FactionSeed(
-        "Haradrim", FactionKind.PROVIDER, gateway="Harad Road (Poros)",
+        "Haradrim", FactionKind.PROVIDER, people=People.MEN,
+        gateway="Harad Road (Poros)",
         allegiance="Mordor", commitment=30,
         output=(("heavy_infantry", 60), ("mumakil", 10)),
     ),
     _FactionSeed(
-        "Easterlings of Rhûn", FactionKind.PROVIDER, gateway="East Rhûn",
+        "Easterlings of Rhûn", FactionKind.PROVIDER, people=People.MEN,
+        gateway="East Rhûn",
         allegiance="Mordor", commitment=25,
         output=(("infantry", 50), ("cavalry", 30)),
     ),
     _FactionSeed(
-        "Variags of Khand", FactionKind.PROVIDER, gateway="SE Khand",
+        "Variags of Khand", FactionKind.PROVIDER, people=People.MEN,
+        gateway="SE Khand",
         allegiance="Mordor", commitment=20,
         output=(("auxiliaries", 40),),
     ),
     _FactionSeed(
-        "Corsairs of Umbar", FactionKind.PROVIDER, gateway="Umbar Sea",
+        "Corsairs of Umbar", FactionKind.PROVIDER, people=People.MEN,
+        gateway="Umbar Sea",
         allegiance="Mordor", commitment=25,
         output=(("raiders", 40), ("ships", 20)),
     ),
@@ -670,6 +715,7 @@ def seed_factions(
             world,
             name=s.name,
             kind=s.kind,
+            people=s.people,
             succession_rule=s.succession_rule,
             leader_id=leader.id if leader else None,
             capital_location_id=capital_id,

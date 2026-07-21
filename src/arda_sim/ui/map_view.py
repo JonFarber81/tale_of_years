@@ -15,11 +15,12 @@ emits :attr:`tileClicked` so the window can inspect that tile.
 
 from __future__ import annotations
 
-from typing import Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QVariantAnimation, Signal
-from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QGraphicsDropShadowEffect,
     QGraphicsEllipseItem,
     QGraphicsItem,
     QGraphicsPixmapItem,
@@ -50,15 +51,35 @@ _PULSE_MS = 900
 _PULSE_GROWTH = 1.6
 _PULSE_BASE_RADIUS = TILE * 0.7
 
+# -- site labels ------------------------------------------------------------
+# Labels are screen-fixed annotations (ItemIgnoresTransformations), so they do
+# not shrink with the map and would all pile up at far zoom. Tier gating is the
+# chosen declutter mechanism — collision culling was considered and deferred
+# (spec / ticket 02): lower-rank labels simply stay hidden until the view is
+# zoomed in enough to give them room. Thresholds are tuned by eye against
+# ``MapView._scale`` (fit-whole-map is ~0.01 on the shipped grid; the zoom-in
+# cap is ``_MAX_SCALE`` = 8.0).
+_LABEL_TIER1_SCALE = 0.5  # towns / forts (tier 1) appear from mid-zoom
+_LABEL_TIER0_SCALE = 1.5  # ruins / everything else (tier 0) only when zoomed close
+_LABEL_FONT_SIZE = 9  # deliberate point size — stop inheriting the app default
+
 
 class MapView(QGraphicsView):
     """Pan/zoom over the tile grid; click a tile to select it."""
 
     tileClicked = Signal(int, int)  # (col, row)
 
-    def __init__(self, grid: TileGrid, parent=None) -> None:
+    def __init__(
+        self,
+        grid: TileGrid,
+        faction_people: Optional[Dict[int, str]] = None,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
         self._grid = grid
+        # faction id -> people string, so a host marker can draw its folk's sprite
+        # over the faction colour (map-visuals ticket 03). Empty until threaded.
+        self._faction_people: Dict[int, str] = faction_people or {}
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         self._scene.setSceneRect(0, 0, grid.width * TILE, grid.height * TILE)
@@ -76,6 +97,7 @@ class MapView(QGraphicsView):
         self.setRenderHints(QPainter.Antialiasing)
         self.setBackgroundBrush(Qt.black)
         self._scale = 1.0
+        self._update_label_visibility()  # initial tier gating at the default scale
         self._press_pos: Optional[QPointF] = None
         # Live salience-pulse animations, kept referenced so Qt doesn't collect
         # them mid-flight; each removes its own item and drops itself on finish.
@@ -121,9 +143,10 @@ class MapView(QGraphicsView):
     def refresh_armies(self, armies: Iterable[Army]) -> None:
         """Redraw the host markers for the current tick from the snapshot's armies.
 
-        Each living host is a faction-coloured disc on its tile, so the viewer can
-        follow campaigns marching across the map. Cheap to rebuild wholesale —
-        there are only a handful of hosts afield at once.
+        Each living host is a faction-coloured backing disc with its people's
+        sprite blitted on top, so the viewer reads *whose* (colour) and *what
+        folk* (sprite) at a glance — and armies stay distinct from site markers.
+        Cheap to rebuild wholesale — only a handful of hosts are afield at once.
         """
         for item in self._army_items:
             self._scene.removeItem(item)
@@ -131,23 +154,59 @@ class MapView(QGraphicsView):
         for army in armies:
             if not army.alive:
                 continue
-            cx = army.col * TILE + TILE / 2
-            cy = army.row * TILE + TILE / 2
-            color = tile_render.faction_color(army.faction_id or UNOWNED)
-            marker = self._scene.addEllipse(
-                cx - TILE * 0.34,
-                cy - TILE * 0.34,
-                TILE * 0.68,
-                TILE * 0.68,
-                QPen(QColor(20, 20, 20), 2),
-                color,
-            )
-            marker.setZValue(4)  # above sites, below salience pulses
-            self._army_items.append(marker)
+            item = self._army_marker(army)
+            self._scene.addItem(item)
+            self._army_items.append(item)
+
+    def _army_marker(self, army: Army) -> QGraphicsPixmapItem:
+        """A scene pixmap for one host: a faction-coloured disc (dark outline)
+        with the people sprite scaled on top, sized to one tile.
+
+        Rendered into a supersampled pixmap then scaled back down for a smooth
+        disc edge, and added as a plain scene item so it scales *with* the map
+        (hosts are map objects, not screen-fixed annotations).
+        """
+        ss = 4  # supersample factor: draw big, then scale the item to one tile
+        span = TILE * ss
+        pixmap = QPixmap(span, span)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        # Backing disc: slightly smaller than the old 0.68·TILE marker.
+        color = tile_render.faction_color(army.faction_id or UNOWNED)
+        diam = span * 0.60
+        off = (span - diam) / 2
+        painter.setPen(QPen(QColor(20, 20, 20), 2 * ss))
+        painter.setBrush(color)
+        painter.drawEllipse(QRectF(off, off, diam, diam))
+        # People sprite centred over the disc, scaled into the cell.
+        people = self._faction_people.get(army.faction_id)
+        sprite = span * 0.72
+        s_off = (span - sprite) / 2
+        tile_render.paint_people_sprite(painter, people, s_off, s_off, sprite)
+        painter.end()
+
+        item = QGraphicsPixmapItem(pixmap)
+        item.setScale(1.0 / ss)
+        item.setPos(army.col * TILE, army.row * TILE)
+        item.setZValue(4)  # above sites/labels, below salience pulses (z=5)
+        return item
 
     def _add_sites(self) -> None:
-        """Draw a marker + haloed label for each authored site."""
-        from PySide6.QtGui import QColor
+        """Draw a marker + haloed label for each authored site.
+
+        Markers are map objects and scale with the view; labels are annotations
+        that hold a constant screen size (``ItemIgnoresTransformations``) and are
+        tier-gated on zoom (see :meth:`_update_label_visibility`). Each label is
+        kept on ``self._site_labels`` as ``(item, tier)`` so zoom changes can
+        toggle its visibility.
+        """
+        label_font = QFont()
+        label_font.setPointSize(_LABEL_FONT_SIZE)
+        label_font.setBold(True)
+
+        # (label_item, tier) pairs, toggled by _update_label_visibility on zoom.
+        self._site_labels: List[tuple] = []
 
         for site in self._grid.sites:
             cx = site.col * TILE + TILE / 2
@@ -161,10 +220,42 @@ class MapView(QGraphicsView):
                 QColor(245, 235, 200),
             )
             marker.setZValue(2)
+
             label = self._scene.addText(site.name)
-            label.setDefaultTextColor(QColor(20, 20, 20))
-            label.setPos(cx + TILE * 0.3, cy - TILE * 0.7)
+            label.setFont(label_font)
+            # Light text over a dark halo reads over any terrain.
+            label.setDefaultTextColor(QColor(245, 235, 200))
+            # A halo: a zero-offset dark blur behind the glyphs (not a shadow).
+            halo = QGraphicsDropShadowEffect()
+            halo.setBlurRadius(4)
+            halo.setColor(QColor(10, 10, 10))
+            halo.setOffset(0, 0)
+            label.setGraphicsEffect(halo)
+            # Screen-fixed: the label keeps its size at any zoom. Its origin is
+            # pinned to the mapped scene point, so the offset is re-tuned by eye
+            # (the old value was tuned for scene-scaled text) to sit up-right of
+            # the marker.
+            label.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
+            label.setPos(cx + TILE * 0.30, cy - TILE * 0.55)
             label.setZValue(3)
+            self._site_labels.append((label, site.tier))
+
+    def _update_label_visibility(self) -> None:
+        """Tier-gate the site labels for the current zoom (``self._scale``).
+
+        Cities (tier 2) are always labelled; towns/forts (tier 1) appear from a
+        mid-zoom threshold; ruins and everything else (tier 0) only when zoomed
+        close. This is the declutter mechanism — collision culling is out of
+        scope (spec / ticket 02).
+        """
+        for label, tier in self._site_labels:
+            if tier >= 2:
+                visible = True
+            elif tier == 1:
+                visible = self._scale >= _LABEL_TIER1_SCALE
+            else:
+                visible = self._scale >= _LABEL_TIER0_SCALE
+            label.setVisible(visible)
 
     # -- interaction -----------------------------------------------------
 
@@ -180,6 +271,7 @@ class MapView(QGraphicsView):
         factor = new_scale / self._scale
         self._scale = new_scale
         self.scale(factor, factor)
+        self._update_label_visibility()
 
     def _min_scale(self) -> float:
         """The zoom-out floor: the whole map just fits the viewport.
@@ -221,6 +313,7 @@ class MapView(QGraphicsView):
         """Fit the whole grid in the viewport (used on first show)."""
         self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
         self._scale = self.transform().m11()
+        self._update_label_visibility()
 
     def focus_tile(self, col: int, row: int) -> None:
         """Center the view on a tile and flash a pulse there.

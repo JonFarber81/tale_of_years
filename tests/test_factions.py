@@ -15,6 +15,7 @@ from arda_sim.factions import (
     Faction,
     FactionKind,
     Intent,
+    People,
     Posture,
     add_faction,
     compute_prominence,
@@ -127,6 +128,49 @@ def test_providers_back_mordor_but_own_no_ground(seeded):
         assert prov.allegiance_faction_id == mordor.id
         assert 0 < prov.commitment <= 100 and prov.output
         assert prov.id not in set(grid.owner)  # never on the ownership map
+
+
+def test_seeds_carry_the_expected_people(seeded):
+    world, _grid, _ = seeded
+    by_name = {f.name: f for f in factions(world)}
+    expected = {
+        "Gondor": People.MEN, "Rohan": People.MEN,
+        "Dúnedain of the North": People.MEN, "Dale": People.MEN,
+        "Bree-land": People.MEN, "Dunland": People.MEN,
+        "Rivendell": People.ELVES, "Lothlórien": People.ELVES,
+        "Woodland Realm": People.ELVES, "Grey Havens": People.ELVES,
+        "Durin's Folk": People.DWARVES,
+        "Mordor": People.ORCS, "Dol Guldur": People.ORCS,
+        "The Shire": People.HOBBITS,
+        # every provider is a people of Men in this roster
+        "Haradrim": People.MEN, "Easterlings of Rhûn": People.MEN,
+        "Variags of Khand": People.MEN, "Corsairs of Umbar": People.MEN,
+    }
+    for name, people in expected.items():
+        assert by_name[name].people == people.value, name
+    # every faction carries a people (nothing left unset)
+    assert all(f.people in {p.value for p in People} for f in factions(world))
+
+
+def test_isengard_is_deliberately_men_not_orcs(seeded):
+    # TA 2965 — before the Uruk-hai. World-truth, not villain styling.
+    world, _grid, _ = seeded
+    isengard = next(f for f in factions(world) if f.name == "Isengard")
+    assert isengard.people == People.MEN.value
+
+
+def test_people_defaults_and_round_trips():
+    # A faction built outside the roster defaults sanely...
+    w = World.new_run("seed")
+    plain = add_faction(w, "Nameless", FactionKind.CULTURE)
+    assert plain.people == People.MEN.value
+    elf = add_faction(w, "Elvish", FactionKind.REALM, people=People.ELVES)
+    assert elf.people == People.ELVES.value
+    # ...and the field survives a canonical-JSON round trip.
+    reloaded = loads(dumps(w))
+    by_name = {f.name: f for f in factions(reloaded)}
+    assert by_name["Nameless"].people == People.MEN.value
+    assert by_name["Elvish"].people == People.ELVES.value
 
 
 def test_elf_realms_hold_a_withdrawing_posture(seeded):
