@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import START_YEAR
+from ..characters import Character, render_bloodline
 from ..chronicle import pulse_events
 from ..entities import Event
 from ..factions import Faction
@@ -249,10 +250,16 @@ class MainWindow(QMainWindow):
         lines = [
             f"── {faction.name} ({faction.faction_kind}) ──",
             f"Leader: {leader.name if leader else '—'}",
+            f"Succession: {faction.succession_rule}",
             f"Posture: {faction.posture}   Aggression: {faction.aggression}",
             f"Strength: {faction.military_strength}   Treasury: {faction.treasury}",
             f"Prominence: {faction.prominence}   Latest intent: {intent}",
         ]
+        bloodline = self._describe_bloodline(leader)
+        if bloodline:
+            lines.append("")
+            lines.append("Bloodline:")
+            lines.append(bloodline)
         recent = [
             ev
             for ev in self._events
@@ -263,6 +270,16 @@ class MainWindow(QMainWindow):
             for ev in recent:
                 lines.append(f"  TA {ev.year}: {ev.text or ev.type}")
         return "\n".join(lines)
+
+    def _describe_bloodline(self, leader: Optional[object]) -> Optional[str]:
+        """The ruling leader's bloodline (dynasty view) as of the displayed year.
+
+        A bloodline is a pure query over kinship id-fields; the snapshot exposes the
+        same ``entities`` map those queries read, so it stands in for the live world.
+        """
+        if not isinstance(leader, Character) or self._latest_snapshot is None:
+            return None
+        return render_bloodline(self._latest_snapshot, leader.id)
 
     # -- UI -> worker ----------------------------------------------------
 
