@@ -437,6 +437,27 @@ def _character(world: World, char_id: int) -> Optional[Character]:
     return entity if isinstance(entity, Character) else None
 
 
+def wed(world: World, a_id: int, b_id: int) -> bool:
+    """Marry two characters: set the symmetric ``spouse_id`` bond both ways.
+
+    The kinship primitive behind the diplomacy phase's marriage decision (ticket
+    09 decides *whether*; this is *what it does* to kinship). Political fallout —
+    which spouse joins which house — is the caller's (a spouse changing faction is
+    a diplomatic act, not a kinship one). No event is emitted here; the caller
+    that chose the match narrates it. Returns ``False`` (a no-op) if either id is
+    not a living, currently-unwed character, so a bad match can't half-form a bond.
+    """
+    a = _character(world, a_id)
+    b = _character(world, b_id)
+    if a is None or b is None or a is b:
+        return False
+    if not a.alive or not b.alive or a.spouse_id is not None or b.spouse_id is not None:
+        return False
+    a.spouse_id = b.id
+    b.spouse_id = a.id
+    return True
+
+
 def children_of(world: World, char_id: int) -> List[Character]:
     """The direct children of a character (id order): those naming it as a parent."""
     return [c for c in characters(world) if char_id in c.parent_ids]

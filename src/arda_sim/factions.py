@@ -162,6 +162,16 @@ class Faction(Entity):
     # state consumed by later phases), as {"intent": str, "target_faction_id": int,
     # "score": int}. Mixed value types, but JSON-clean (str keys, scalar values).
     current_intent: Dict[str, Any] = field(default_factory=dict)
+    # Diplomacy (build ticket 09). ``disposition`` above *evolves*; it decays each
+    # year toward this frozen authored ``baseline_disposition`` (same str keys),
+    # so canon tempers are lasting attractors rather than a mere opening position
+    # (ADR-0005). ``at_war_with`` / ``treaties`` are the *symmetric* pinned flags —
+    # each faction id appears on both parties' lists, maintained by phase 3. The
+    # *stance* (alliance/neutrality/hostility/vassalage) is derived from these plus
+    # ``overlord_faction_id`` (see :func:`arda_sim.diplomacy.stance`), never stored.
+    baseline_disposition: Dict[str, int] = field(default_factory=dict)
+    at_war_with: List[int] = field(default_factory=list)
+    treaties: List[int] = field(default_factory=list)
 
     @property
     def kind_tag(self) -> FactionKind:
@@ -179,6 +189,16 @@ class Faction(Entity):
     def disposition_toward(self, faction_id: int) -> int:
         """Relation scalar toward another faction (0 = indifferent by default)."""
         return self.disposition.get(str(faction_id), 0)
+
+    def baseline_toward(self, faction_id: int) -> int:
+        """The frozen authored temper this pair decays back to (0 by default)."""
+        return self.baseline_disposition.get(str(faction_id), 0)
+
+    def is_at_war_with(self, faction_id: int) -> bool:
+        return faction_id in self.at_war_with
+
+    def has_treaty_with(self, faction_id: int) -> bool:
+        return faction_id in self.treaties
 
 
 register_entity_type("faction", Faction)
@@ -680,6 +700,9 @@ def seed_factions(
         faction.disposition = {
             str(by_name[other].id): value for other, value in s.disposition
         }
+        # Freeze the authored temper as the decay attractor (ADR-0005): the live
+        # disposition above evolves under events, but always pulls back to this.
+        faction.baseline_disposition = dict(faction.disposition)
 
     # Pass 3 — paint atomic region ownership onto the grid.
     _paint_territory(grid, region_owner)
