@@ -129,8 +129,10 @@ def test_inspection_describes_clicked_tile(qapp):
         # coordinate that silently goes stale). It sits in the Gondor-owned block.
         mt = next(s for s in window._grid.sites if s.name == "Minas Tirith")
         text = window.describe_tile(mt.col, mt.row)
-        assert f"Tile ({mt.col}, {mt.row})" in text
-        assert "Owner: Gondor" in text
+        # HTML dossier (inspection-ui 01): a TILE banner with the coords, an
+        # Owner stat row naming Gondor, and the site line.
+        assert "TILE" in text and f"({mt.col}, {mt.row})" in text
+        assert "Owner" in text and "Gondor" in text
         assert "Minas Tirith" in text
     finally:
         window.close()
