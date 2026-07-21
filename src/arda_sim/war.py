@@ -46,7 +46,9 @@ from .armies import (
     ARMY_MUSTERED_EVENT,
     Army,
     armies,
+    end_host,
     find_path,
+    host_cooldown_years,
 )
 from .characters import Character, DEATH_EVENT
 from .diplomacy import make_peace
@@ -112,12 +114,18 @@ _BATTLE_SWING = 35
 _DECISIVE_RATIO = 200  # winner ≥ 2× loser → a rout
 
 # Casualties as a percent of each side's *size*, by tier. The loser always bleeds
-# harder; even a decisive victor loses some men.
-_CASUALTY_WINNER = {"decisive": 5, "marginal": 12}
-_CASUALTY_LOSER = {"decisive": 55, "marginal": 30}
+# harder; even a decisive victor loses some men. Tuned up for issue #13 so a
+# decisive clash *shatters* the broken host in one stroke — a real turning point,
+# not an indecisive bleed that limps home to re-fight.
+_CASUALTY_WINNER = {"decisive": 8, "marginal": 15}
+_CASUALTY_LOSER = {"decisive": 75, "marginal": 35}
 
-# A host reduced at or below this size by a battle is wiped out, not merely beaten.
-_DESTROY_SIZE = 100
+# Destruction is **proportional** to a host's own mustered strength (issue #13): a
+# host cut below this percent of the strength it took the field with is wiped out,
+# not merely beaten — so one key battle can end a war. A small absolute floor keeps
+# the rule sensible for tiny/bare hosts whose mustered strength wasn't recorded.
+_DESTROY_FRACTION = 25
+_DESTROY_FLOOR = 100
 
 # -- siege tuning (integer) -----------------------------------------------
 
@@ -215,16 +223,18 @@ def _field_battles(world: World, grid: TileGrid, rng: random.Random) -> List[Eve
 
 
 def _hosts_engage(world: World, grid: TileGrid, a: Army, b: Army) -> bool:
-    """Whether two hosts fight this tick: at-war factions, on the same or an
-    orthogonally adjacent tile. (Providers fight for their patron's wars.)"""
+    """Whether two hosts fight this tick: at-war factions sharing the **same tile**.
+
+    Adjacency no longer triggers a clash (issue #13) — battles concentrate where
+    hosts actually *meet*, so incidental border skirmishes vanish and the few
+    battles that do fire are the decisive ones. (Providers fight their patron's wars.)
+    """
     fa, fb = _faction(world, a.faction_id), _faction(world, b.faction_id)
     if fa is None or fb is None or fa.id == fb.id:
         return False
     if not _factions_at_war(world, fa, fb):
         return False
-    if a.col == b.col and a.row == b.row:
-        return True
-    return any((nc, nr) == (b.col, b.row) for nc, nr in grid.neighbors(a.col, a.row))
+    return a.col == b.col and a.row == b.row
 
 
 def _sides(world: World, grid: TileGrid, a: Army, b: Army) -> Tuple[Army, Army]:
@@ -291,8 +301,10 @@ def _resolve_battle(
             },
         )
     ]
-    # The broken host retreats toward home, or is destroyed if too few remain.
-    if loser.size <= _DESTROY_SIZE:
+    # The broken host retreats toward home, or is destroyed if it is shattered —
+    # cut below a fraction of the strength it mustered with (issue #13).
+    destroy_floor = max(_DESTROY_FLOOR, loser.mustered_size * _DESTROY_FRACTION // 100)
+    if loser.size <= destroy_floor:
         events.append(_destroy_host(world, loser))
     else:
         _retreat(world, grid, loser)
@@ -508,6 +520,8 @@ def _muster_providers(world: World, grid: TileGrid) -> List[Event]:
             continue
         if _has_host(world, provider.id):
             continue
+        if world.current_year < provider.muster_cooldown_until:
+            continue  # a spent host still resting — the same cadence gate realms use
         host = _spawn_provider_host(world, grid, provider, patron)
         if host is not None:
             events.append(host)
@@ -544,6 +558,8 @@ def _spawn_provider_host(
         target_faction_id=enemy.id if (enemy is not None and path) else None,
         dest_site_id=dest_site_id,
         path=path,
+        contributor_ids=[provider.id],
+        cooldown_years=host_cooldown_years(size),
         prominence=provider.prominence,
     )
     world.entities[army.id] = army
@@ -705,6 +721,7 @@ def _destroy_host(world: World, army: Army) -> Event:
     """Tombstone a host wiped out in battle, emitting its disband event."""
     army.status = EntityStatus.DEAD.value
     army.siege_progress = 0
+    end_host(world, army)  # its contributors now rest under a muster cooldown
     return world.new_event(
         type=ARMY_DISBANDED_EVENT,
         subject_ids=_army_and_factions(army, _faction(world, army.faction_id), None),

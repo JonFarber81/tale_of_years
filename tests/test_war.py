@@ -109,16 +109,19 @@ def test_only_at_war_hosts_fight():
     assert not [e for e in war(w, w.rng) if e.type == BATTLE_EVENT]
 
 
-def test_hosts_sharing_or_bordering_a_tile_give_battle():
+def test_hosts_give_battle_only_when_they_share_a_tile():
+    # Post-#13: adjacency no longer triggers a clash — battles concentrate where
+    # hosts actually meet, so incidental border skirmishes vanish.
     w = World.new_run("clash")
     w.grid = _grid(4, 1)
     a = add_faction(w, "A", FactionKind.REALM)
     b = add_faction(w, "B", FactionKind.REALM)
     _at_war(a, b)
-    _army(w, a.id, 1, 0)
-    _army(w, b.id, 2, 0)  # adjacent
-    battles = [e for e in war(w, w.rng) if e.type == BATTLE_EVENT]
-    assert len(battles) == 1
+    ha = _army(w, a.id, 1, 0)
+    hb = _army(w, b.id, 2, 0)  # merely adjacent — no battle
+    assert not [e for e in war(w, w.rng) if e.type == BATTLE_EVENT]
+    hb.col = 1  # now on the same tile
+    assert len([e for e in war(w, w.rng) if e.type == BATTLE_EVENT]) == 1
 
 
 def test_strength_dominates_on_average_but_upsets_occur():
@@ -167,6 +170,23 @@ def test_a_shattered_host_is_destroyed_not_merely_beaten():
     tiny = _army(w, b.id, 1, 0, size=120)  # well under the destroy threshold once it loses
     war(w, w.rng)
     assert not tiny.alive and tiny.status == EntityStatus.DEAD.value
+
+
+def test_destruction_is_proportional_to_a_hosts_mustered_strength():
+    # A big host reduced below a *fraction of what it mustered* is shattered, even
+    # though its absolute remnant is far above the old flat floor (issue #13).
+    w = World.new_run("proportional")
+    w.grid = _grid(3, 1)
+    a = add_faction(w, "A", FactionKind.REALM)
+    b = add_faction(w, "B", FactionKind.REALM)
+    _at_war(a, b)
+    _army(w, a.id, 1, 0, size=40000)
+    big = _army(w, b.id, 1, 0, size=10000)
+    big.mustered_size = 10000  # it took the field 10k strong
+    war(w, w.rng)
+    # A decisive loss (75% casualties → ~2500 left) is below 25% of 10000 → destroyed,
+    # despite ~2500 men dwarfing the old flat 100-man floor.
+    assert not big.alive and big.status == EntityStatus.DEAD.value
 
 
 # =========================================================================
