@@ -176,6 +176,41 @@ carries its rebuilt towns and roads forward (see ADR-0007).
 **restoration** (founding/rebuilding over mere growth), never the fixed integer
 **price** of a work; the dice-free counterpart to the phase-2 intent lean.
 
+## The One Ring
+
+**The One Ring** — the single bespoke artifact at the world's centre. There is
+exactly one in a run; it is always somewhere definite, and its journey is the
+history's quiet gravity. Seeded borne by Bilbo at the Shire's seat.
+
+**Bearer** — the character currently carrying the Ring. Exactly one, or none: the
+Ring is either **borne** (a bearer holds it) or lying at a place, never both and
+never nowhere. A **former bearer** is anyone who has carried it before — the Ring
+keeps that roll, and the mark it leaves is lasting.
+
+**Corruption** — the Ring's per-bearer taint, an integer that **grows** the longer
+it is borne (faster on a grasping temper, resisted by a steadfast one) and
+**attenuates — never resets** when it changes hands. Low corruption prolongs the
+bearer's life; a middling taint bends them to secrecy; a deep one may move them to
+**claim** it.
+
+**Claim** — a bearer, deep in corruption, seizing the Ring as their own. A
+non-Sauron claim is a *transient* flare, not an ending — the terminal fates (a
+claimant unmade, the Dark Lord drawn to reclaim) belong to Sauron's rise.
+
+**Pull** — the Ring's global draw on the world, an integer that **spikes on use**
+and ebbs otherwise. High pull raises the odds the Ring is lost, stolen, or
+betrayed away — the danger it invites — never any power to move on its own.
+
+**Transfer mode** — the closed set of ways the Ring changes hands, each a
+canonicity-weighted chance fired by the phase that owns it:
+**inheritance** (a dead bearer's kin take it up, kinship-biased), **gift**,
+**theft**, **loss** (it slips and lies where it fell), **found** (picked up from
+where it lay), **war-capture** (seized by a host holding that ground), and
+**errand** (sent deliberately toward a goal — movement, not a handover).
+
+**Errand** — the Ring travelling with its bearer toward a goal, advancing tile by
+tile on a walking pace while borne; unborne, it never moves itself.
+
 ## Annals & inspection
 
 **Annals feed** — the newest-first chronicle of events the viewer reads,

@@ -310,3 +310,46 @@ def test_marching_host_adds_a_direction_cue(qapp):
         assert len(window._map._army_items) == idle_items + 1  # exactly one cue
     finally:
         window.close()
+
+
+def test_refresh_ring_draws_then_clears_the_one_ring_marker(qapp):
+    # The One Ring draws a single marker at its tile (borne or lying), rebuilt
+    # wholesale each tick; passing None clears it (ticket 13).
+    from arda_sim.ring import Ring
+
+    window = build_window("fellowship")
+    try:
+        ring = Ring(id=70001, kind="ring", name="The One Ring", created_year=2965,
+                    bearer_id=None, location_id=1, col=3, row=4)
+        window._map.refresh_ring(ring)
+        assert window._map._ring_item is not None
+        first = window._map._ring_item
+        window._map.refresh_ring(ring)  # redraw replaces rather than accumulates
+        assert window._map._ring_item is not None and window._map._ring_item is not first
+        window._map.refresh_ring(None)
+        assert window._map._ring_item is None
+    finally:
+        window.close()
+
+
+def test_the_ring_is_inspectable_with_its_scalars_and_journey(qapp):
+    # Clicking the Ring's tile headlines the Ring dossier with its scalars, above
+    # the ordinary tile subject as context (ticket 13).
+    from arda_sim.factions import seed_world
+    from arda_sim.pipeline import run_years
+    from arda_sim.ring import the_ring
+    from arda_sim.snapshot import snapshot_world
+
+    window = build_window("fellowship")
+    try:
+        world, grid, names = seed_world("fellowship")
+        run_years(world, 10)
+        ring = the_ring(world)
+        window._latest_snapshot = snapshot_world(world, world.tick)
+        window._events = list(world.events)
+        window._display_year = world.current_year
+        html = window.describe_tile(ring.col, ring.row)
+        assert "One Ring" in html
+        assert "Corruption" in html and "Pull" in html
+    finally:
+        window.close()

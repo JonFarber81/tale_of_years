@@ -827,9 +827,11 @@ def seed_world(seed_str: str, canonicity: float = 1.0):
     so the political map and the phase-2 turn are set up identically everywhere.
     """
     from .characters import new_seeded_run
+    from .ring import seed_ring
 
     world = new_seeded_run(seed_str, canonicity=canonicity)
     grid = load_scenario(_ROSTER_SCENARIO_FILE)
     faction_names = seed_factions(world, grid)
     world.grid = grid  # live handle: lets the succession phase reach territory (ADR-0004)
+    seed_ring(world, grid)  # the One Ring, borne by Bilbo (ticket 13) — seeded last
     return world, grid, faction_names

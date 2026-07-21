@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..armies import Army
+from ..ring import Ring
 from ..tiles import UNOWNED, TileGrid
 from . import tile_render
 
@@ -96,6 +97,9 @@ _SITE_SETTLE_FILL = QColor(245, 235, 200)  # cream — inhabited settlements
 _SITE_FORT_FILL = QColor(160, 162, 170)    # cool stone grey — a garrisoned keep
 _SITE_RUIN_FILL = QColor(122, 116, 108)    # muted grey-brown — thrown down
 _SITE_EDGE = QColor(20, 20, 20)            # dark outline, as the old disc had
+
+# The One Ring marker: a warm gold annulus, unmistakable on any terrain (ticket 13).
+_RING_GOLD = QColor(233, 196, 106)
 
 
 def _crenellated_block(x, w, y_top, merlon_h, body_h, n) -> QPolygonF:
@@ -203,6 +207,8 @@ class MapView(QGraphicsView):
         self.refresh_owners()
         # Army markers, rebuilt each tick from the snapshot's hosts (ticket 10).
         self._army_items: List[QGraphicsItem] = []
+        # The One Ring marker, redrawn each tick from the snapshot's Ring (ticket 13).
+        self._ring_item: Optional[QGraphicsItem] = None
 
         self.setDragMode(QGraphicsView.ScrollHandDrag)  # left-drag to pan
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
@@ -275,6 +281,45 @@ class MapView(QGraphicsView):
             if cue is not None:
                 self._scene.addItem(cue)
                 self._army_items.append(cue)
+
+    def refresh_ring(self, ring: Optional[Ring]) -> None:
+        """Redraw the One Ring marker at its current tile (ticket 13).
+
+        The Ring is always somewhere definite — it draws from its bearer's seat
+        when borne, or from where it lies when not (its ``col``/``row`` already
+        resolves both, kept in step by the Ring phase). A small golden annulus on
+        its own layer above the hosts, so the viewer can always find it.
+        """
+        if self._ring_item is not None:
+            self._scene.removeItem(self._ring_item)
+            self._ring_item = None
+        if ring is None:
+            return
+        ss = 4
+        span = TILE * ss
+        pixmap = QPixmap(span, span)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        outer = span * 0.40
+        thick = span * 0.11
+        off = (span - outer) / 2
+        painter.setPen(QPen(QColor(20, 20, 20), 1.5 * ss))
+        painter.setBrush(_RING_GOLD)
+        painter.drawEllipse(QRectF(off, off, outer, outer))
+        # Punch the centre out so it reads as a ring, not a coin.
+        painter.setCompositionMode(QPainter.CompositionMode_Clear)
+        inner = outer - 2 * thick
+        painter.drawEllipse(
+            QRectF(off + thick, off + thick, inner, inner)
+        )
+        painter.end()
+        item = QGraphicsPixmapItem(pixmap)
+        item.setScale(1.0 / ss)
+        item.setPos(ring.col * TILE, ring.row * TILE)
+        item.setZValue(5)  # above hosts (z=4); the eye should always find the Ring
+        self._scene.addItem(item)
+        self._ring_item = item
 
     def _march_cue(self, army: Army) -> Optional[QGraphicsPolygonItem]:
         """A subtle direction arrowhead for a host mid-march, else ``None``.
