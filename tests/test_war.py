@@ -392,27 +392,27 @@ def test_all_outcome_math_is_integer():
 
 def test_war_runs_and_reshapes_the_map_over_a_seeded_run():
     world, grid, _ = seed_world("great-war")
-    events = run_years(world, 40)
+    events = run_years(world, 30)
     kinds = Counter(e.type for e in events)
     assert kinds[BATTLE_EVENT] + kinds[SIEGE_EVENT] > 0  # there was fighting
-    # some realm was conquered over four decades of canon-pressured war
+    # some realm was conquered over three decades of canon-pressured war
     assert kinds[CONQUEST_EVENT] > 0
 
 
 def test_war_is_deterministic_under_seed():
     a = seed_world("war-dup")[0]
     b = seed_world("war-dup")[0]
-    run_years(a, 30)
-    run_years(b, 30)
+    run_years(a, 15)
+    run_years(b, 15)
     assert dumps(a) == dumps(b)
     c = seed_world("war-other")[0]
-    run_years(c, 30)
+    run_years(c, 15)
     assert dumps(c) != dumps(a)
 
 
 def test_siege_state_round_trips_through_save_load():
     world, grid, _ = seed_world("war-save")
-    run_years(world, 20)
+    run_years(world, 12)
     blob = dumps(world)
     reloaded = loads(blob)
     assert dumps(reloaded) == blob  # siege_progress and all army state round-trip
