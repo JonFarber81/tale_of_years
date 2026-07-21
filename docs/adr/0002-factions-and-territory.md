@@ -99,7 +99,7 @@ switched by the tag. Territory is atomic region ownership realized as per-tile
   "per-tile owner is the only authoritative territory state." Rejected; atomic
   region ownership is *realized* on tiles instead.
 - **Fractional / influence-based territory.** Richer contested modelling, but not
-  needed at a yearly tick and expensive to render legibly. Deferred (fog).
+  needed at this tick cadence and expensive to render legibly. Deferred (fog).
 - **Fully simulating Harad / Rhûn / Khand** (internal territory, dynasties).
   Enormous scope for peoples that only ever appear as allied hosts. Rejected for
   the abstract gateway-provider interface.

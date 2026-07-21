@@ -24,7 +24,7 @@ from arda_sim.characters import (
 )
 from arda_sim.entities import EntityStatus
 from arda_sim.persistence import dumps, loads
-from arda_sim.pipeline import run_ticks
+from arda_sim.pipeline import run_years
 from arda_sim.world import World
 
 
@@ -105,15 +105,15 @@ def _couple_world(seed="hornburg"):
 def test_births_and_deaths_are_deterministic_under_a_fixed_seed():
     a = _couple_world()
     b = _couple_world()
-    run_ticks(a, 60)
-    run_ticks(b, 60)
+    run_years(a, 60)
+    run_years(b, 60)
     # Same seed, same construction -> byte-identical runs.
     assert dumps(a) == dumps(b)
 
 
 def test_established_couples_produce_births():
     w = _couple_world()
-    run_ticks(w, 60)
+    run_years(w, 60)
     births = [e for e in w.events if e.type == "birth"]
     assert births, "a fertile couple over 60 years should produce at least one birth"
     child_id = births[0].subject_ids[0]
@@ -127,19 +127,19 @@ def test_established_couples_produce_births():
 def test_a_lone_character_never_gives_birth():
     w = World.new_run("solo")
     add_character(w, "Gilraen", Race.MAN, 2907, sex="F")  # no spouse
-    run_ticks(w, 40)
+    run_years(w, 40)
     assert not [e for e in w.events if e.type == "birth"]
 
 
 def test_births_and_deaths_survive_a_save_load_round_trip():
     w = _couple_world()
-    run_ticks(w, 30)
+    run_years(w, 30)
     restored = loads(dumps(w))
     # Characters rehydrate as Characters (not the base Entity), with their fields.
     people = characters(restored)
     assert people and all(isinstance(c, Character) for c in people)
-    run_ticks(w, 20)
-    run_ticks(restored, 20)
+    run_years(w, 20)
+    run_years(restored, 20)
     assert dumps(restored) == dumps(w)
 
 
@@ -149,7 +149,7 @@ def test_immortals_never_die_naturally_but_elves_depart():
     w = World.new_run("valinor")
     elf = add_character(w, "Gil-galad", Race.ELF, -3000)
     maia = add_character(w, "Olórin", Race.MAIA, -3000)
-    run_ticks(w, 600)
+    run_years(w, 600)
     assert elf.status != EntityStatus.DEAD.value
     assert maia.status != EntityStatus.DEAD.value
     # Over centuries the Elf wearies and sails West; the Maia never departs.
@@ -161,7 +161,7 @@ def test_immortals_never_die_naturally_but_elves_depart():
 def test_departed_elf_is_tombstoned_not_deleted():
     w = World.new_run("mithlond")
     elf = add_character(w, "Círdan", Race.ELF, -3000)
-    run_ticks(w, 600)
+    run_years(w, 600)
     assert elf.id in w.entities  # record survives departure
     assert not elf.alive
 
@@ -170,7 +170,7 @@ def test_departed_elf_is_tombstoned_not_deleted():
 
 def test_timeline_reads_back_a_full_life_including_the_tombstone():
     w = _couple_world()
-    run_ticks(w, 80)
+    run_years(w, 80)
     # Find someone who both was born and died within the run.
     deaths = {e.subject_ids[0] for e in w.events if e.type == "death"}
     births = {e.subject_ids[0] for e in w.events if e.type == "birth"}

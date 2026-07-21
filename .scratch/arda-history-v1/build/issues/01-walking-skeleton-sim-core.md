@@ -2,6 +2,8 @@
 
 **What to build:** The headless, framework-agnostic simulation core with nothing but the spine — no game systems yet. You can start a run from a string seed, advance it year by year from TA 2965, have it emit at least one placeholder event per tick, save the run to disk, reload it, and prove the reloaded run continues bit-identically to one that never stopped. This is the prefactor + walking skeleton every other ticket builds on.
 
+> **Update (ADR-0003):** the tick is now a **month** (`TICKS_PER_YEAR = 12`), not a year. `World` stores an absolute `tick` clock; `current_year`/`month` are derived. Persistence stores `tick` (schema v2, with a v1→v2 migration). The `Event.year` stamp and the driver's `--years N` (now `N * TICKS_PER_YEAR` ticks) are unchanged in spirit.
+
 **Blocked by:** None — can start immediately.
 
 **Status:** ready-for-agent

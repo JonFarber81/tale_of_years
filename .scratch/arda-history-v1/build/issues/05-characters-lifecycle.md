@@ -2,6 +2,8 @@
 
 **What to build:** Named people who live and die over the years. The TA 2965 canon character roster is seeded accurately; phase 1 ages everyone, rolls natural/disease deaths, and produces births; races age differently (mortal Men/Hobbits, long-lived Dúnedain/Dwarves, immortal Elves/Maiar), and Elves slowly weary and depart over the Sea. Births and deaths appear in the annals and a character's full timeline is inspectable.
 
+> **Update (ADR-0003):** phase 1 runs every **monthly** tick. The death/fertility tables stay authored as *annual* basis points, but each roll uses the `BP_SCALE * TICKS_PER_YEAR` denominator so twelve monthly rolls reproduce the same annual behaviour (integer math intact). Elf-weariness threshold scales with `TICKS_PER_YEAR`, keeping departures on a centuries timescale.
+
 **Blocked by:** 03
 
 **Status:** ready-for-agent

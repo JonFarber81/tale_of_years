@@ -39,7 +39,9 @@ Every simulated thing is a plain **dataclass record** living in a typed collecti
 
 ### 2. The tick — fixed ordered system pipeline
 
-A tick advances **one year**. The tick is an explicit, fixed list of **systems**, each a callable `system(world, rng)` that mutates state and appends events. Deterministic order + a single seeded RNG threaded through every system (never wall-clock or `hash()`) is what makes a run reproducible from (seed + config) — the persistence contract of ticket 12.
+> **Update (ADR-0003):** a tick now advances **one month** (`TICKS_PER_YEAR = 12`). The absolute `tick` count is the authoritative clock; `current_year`/`month` are derived. Everything below about ordering, the `(world, rng) -> events` contract, and determinism is unchanged.
+
+A tick advances **one month**. The tick is an explicit, fixed list of **systems**, each a callable `system(world, rng)` that mutates state and appends events. Deterministic order + a single seeded RNG threaded through every system (never wall-clock or `hash()`) is what makes a run reproducible from (seed + config) — the persistence contract of ticket 12.
 
 Order within one year:
 

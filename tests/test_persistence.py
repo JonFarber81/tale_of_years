@@ -9,7 +9,7 @@ import pytest
 from arda_sim import RNG_FAMILY, SCHEMA_VERSION, __version__
 from arda_sim.driver import run
 from arda_sim.persistence import dumps, from_dict, load, loads, save, to_dict
-from arda_sim.pipeline import run_ticks
+from arda_sim.pipeline import run_years
 from arda_sim.world import World
 
 
@@ -52,7 +52,7 @@ def test_save_load_continue_is_bit_identical_to_never_stopping(tmp_path):
     path = tmp_path / "run.ardasave.json"
     save(interrupted, str(path))
     resumed = load(str(path))
-    run_ticks(resumed, 25)
+    run_years(resumed, 25)
 
     assert dumps(resumed) == ref_blob
 
@@ -80,6 +80,23 @@ def test_load_rejects_unbridgeable_old_schema_version():
     data["provenance"]["schema_version"] = 0  # no migration registered from 0
     with pytest.raises(ValueError):
         from_dict(data)
+
+
+def test_migrates_v1_yearly_save_to_v2_monthly_tick_clock():
+    # A v1 save stored a yearly ``current_year`` and no ``tick``. Loading it must
+    # rebuild the monthly tick clock at the first month of that year.
+    from arda_sim import START_YEAR, TICKS_PER_YEAR
+
+    world = run("fellowship", 4)  # advances the current schema
+    data = to_dict(world)
+    # Rewrite the payload to look like a v1 save: yearly clock, no tick.
+    data["provenance"]["schema_version"] = 1
+    data["state"]["current_year"] = START_YEAR + 7
+    del data["state"]["tick"]
+
+    restored = from_dict(data)
+    assert restored.tick == 7 * TICKS_PER_YEAR
+    assert restored.current_year == START_YEAR + 7 and restored.month == 1
 
 
 def test_load_defaults_canonicity_when_header_predates_it():
