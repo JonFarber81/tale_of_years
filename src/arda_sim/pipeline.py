@@ -16,6 +16,7 @@ import random
 from typing import Callable, List, Tuple
 
 from .characters import aging_births_deaths as _aging_births_deaths  # phase 1
+from .chronicle import finalize_event
 from .entities import Event
 from .world import World
 
@@ -73,6 +74,11 @@ def run_tick(world: World) -> List[Event]:
     Runs every phase in order (appending each system's events as it goes), emits
     the placeholder heartbeat, then increments the year. The heartbeat draws from
     the RNG so the resume path is genuinely exercised.
+
+    Systems emit *structured* events (type, subjects, location, payload); the
+    chronicle (:func:`finalize_event`) scores each one's ``importance`` and
+    renders its prose ``text`` here, at emission, exactly once — so the whole
+    salience-and-voice policy lives in one place, not scattered across systems.
     """
     emitted: List[Event] = []
     rng = world.rng
@@ -80,6 +86,7 @@ def run_tick(world: World) -> List[Event]:
     for _name, system in PIPELINE:
         events = system(world, rng)
         for event in events:
+            finalize_event(world, event)
             world.append_event(event)
             emitted.append(event)
 
@@ -88,9 +95,9 @@ def run_tick(world: World) -> List[Event]:
     # systems emit real events.
     heartbeat = world.new_event(
         type=HEARTBEAT_EVENT_TYPE,
-        importance=0,
         payload={"year": world.current_year, "roll": rng.getrandbits(32)},
     )
+    finalize_event(world, heartbeat)
     world.append_event(heartbeat)
     emitted.append(heartbeat)
 

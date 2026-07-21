@@ -15,11 +15,12 @@ emits :attr:`tileClicked` so the window can inspect that tile.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QPainter, QPixmap
+from PySide6.QtCore import QPointF, QRectF, Qt, QVariantAnimation, Signal
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QGraphicsEllipseItem,
     QGraphicsPixmapItem,
     QGraphicsScene,
     QGraphicsView,
@@ -38,6 +39,11 @@ _ZOOM_STEP = 1.15
 # A press-to-release move shorter than this (in view pixels) counts as a click,
 # not a pan — so tile selection survives the ScrollHandDrag pan mode.
 _CLICK_SLOP = 4
+
+# A salience pulse: how long the transient flash lives (ms) and how far it grows.
+_PULSE_MS = 900
+_PULSE_GROWTH = 1.6
+_PULSE_BASE_RADIUS = TILE * 0.7
 
 
 class MapView(QGraphicsView):
@@ -64,6 +70,9 @@ class MapView(QGraphicsView):
         self.setBackgroundBrush(Qt.black)
         self._scale = 1.0
         self._press_pos: Optional[QPointF] = None
+        # Live salience-pulse animations, kept referenced so Qt doesn't collect
+        # them mid-flight; each removes its own item and drops itself on finish.
+        self._pulses: List[QVariantAnimation] = []
 
     # -- layers ----------------------------------------------------------
 
@@ -159,3 +168,39 @@ class MapView(QGraphicsView):
         """Fit the whole grid in the viewport (used on first show)."""
         self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
         self._scale = self.transform().m11()
+
+    # -- salience pulses -------------------------------------------------
+
+    def pulse(self, col: int, row: int) -> None:
+        """Flash a transient ring at a tile to draw the eye to a salient event.
+
+        A ring that grows and fades over ~1s, then removes itself. Purely
+        decorative and self-cleaning, so firing several a year is harmless.
+        """
+        cx = col * TILE + TILE / 2
+        cy = row * TILE + TILE / 2
+        ring: QGraphicsEllipseItem = self._scene.addEllipse(
+            QRectF(), QPen(QColor(255, 226, 138), 2), Qt.NoBrush
+        )
+        ring.setZValue(5)
+
+        anim = QVariantAnimation(self)
+        anim.setStartValue(0.0)
+        anim.setEndValue(1.0)
+        anim.setDuration(_PULSE_MS)
+
+        def on_tick(t: float) -> None:
+            radius = _PULSE_BASE_RADIUS * (1.0 + _PULSE_GROWTH * t)
+            ring.setRect(cx - radius, cy - radius, 2 * radius, 2 * radius)
+            ring.setOpacity(max(0.0, 1.0 - t))
+
+        def on_done() -> None:
+            self._scene.removeItem(ring)
+            if anim in self._pulses:
+                self._pulses.remove(anim)
+
+        anim.valueChanged.connect(on_tick)
+        anim.finished.connect(on_done)
+        on_tick(0.0)
+        self._pulses.append(anim)
+        anim.start()

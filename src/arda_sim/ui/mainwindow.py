@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import START_YEAR
+from ..chronicle import pulse_events
 from ..entities import Event
 from ..playback import Playback
 from ..snapshot import Snapshot
@@ -92,6 +93,11 @@ class MainWindow(QMainWindow):
         bar.addWidget(self._speed)
 
         bar.addSeparator()
+        # The feed defaults to important-only; this toggles "show all" (ticket 06).
+        self._show_all_action = bar.addAction("Show all", self._on_show_all_toggled)
+        self._show_all_action.setCheckable(True)
+
+        bar.addSeparator()
         self._scrub = QSlider(Qt.Horizontal, self)
         self._scrub.setRange(START_YEAR, START_YEAR)
         self._scrub.setEnabled(False)  # nothing simulated yet
@@ -147,11 +153,26 @@ class MainWindow(QMainWindow):
     def _on_year_advanced(self, snapshot: Snapshot, events: List[Event]) -> None:
         if events:  # a live advance; a scrub-restore carries none
             self._annals_model.append_events(events)
+            self._fire_pulses(events)
         year = snapshot.year
         self._year_label.setText(f"TA {year}")
         # Cap the annals when scrubbed behind the frontier; live years are >= it.
         self._annals_model.set_cap_year(None if year >= self._frontier else year)
         self._sync_slider(year)
+
+    def _fire_pulses(self, events: List[Event]) -> None:
+        """Flash an on-map pulse for each above-threshold, located event."""
+        for event in pulse_events(events):
+            site = self._grid.site_by_id(event.location_id)
+            if site is not None:
+                self._map.pulse(site.col, site.row)
+
+    def _on_show_all_toggled(self) -> None:
+        """Toolbar toggle: show every event vs. the default important-only feed."""
+        if self._show_all_action.isChecked():
+            self._annals_model.show_all()
+        else:
+            self._annals_model.important_only()
 
     def _on_frontier_changed(self, frontier: int) -> None:
         self._frontier = frontier
