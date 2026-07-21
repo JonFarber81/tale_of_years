@@ -602,6 +602,7 @@ _ROSTER: tuple = (
     _FactionSeed(
         "Bree-land", FactionKind.CULTURE, leader=None, capital="Bree",
         aggression=8, posture=Posture.NEUTRAL,
+        regions=("Bree-land",),  # Bree and its villages — its own ground, not the Shire's
         goals=("build",),
     ),
     _FactionSeed(
