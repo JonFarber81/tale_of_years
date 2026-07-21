@@ -367,6 +367,103 @@ def test_focus_tile_centers_the_view_and_pulse_expires(qapp):
         window.close()
 
 
+def _dossier(event, names=None):
+    from arda_sim.ui.event_dossier import render_event_dossier
+
+    names = names or {}
+    return render_event_dossier(
+        event,
+        faction_name=lambda fid: names.get(fid, f"faction {fid}"),
+        site_name=lambda sid: {4: "Osgiliath"}.get(sid),
+        region_name=lambda rid: {7: "Ithilien", 8: "Anórien"}.get(rid),
+    )
+
+
+def test_battle_dossier_reads_as_prose(qapp):
+    event = Event(
+        id=1, year=3018, type="battle", importance=70, location_id=4,
+        subject_ids=[10, 20],
+        text="Gondor met Mordor in battle",
+        payload={
+            "winner_faction_id": 10, "loser_faction_id": 20,
+            "winner_army_id": 1, "loser_army_id": 2,
+            "tier": "decisive", "winner_casualties": 400, "loser_casualties": 1800,
+        },
+    )
+    text = _dossier(event, {10: "Gondor", 20: "Mordor"})
+    assert text.startswith("── TA 3018 · war · notable ──")
+    assert "Gondor met Mordor in battle" in text
+    assert "Gondor broke the host of Mordor before Osgiliath" in text
+    assert "swept clear" in text  # the decisive tier reads differently
+    assert "1,800" in text and "400" in text
+    assert "winner_faction_id" not in text  # prose, not key/value dump
+
+
+def test_siege_and_conquest_and_razing_dossiers(qapp):
+    siege = Event(
+        id=2, year=3019, type="siege", importance=45, location_id=4,
+        payload={"besieger_faction_id": 20, "besieged_faction_id": 10,
+                 "progress": 30, "required": 90},
+    )
+    text = _dossier(siege, {10: "Gondor", 20: "Mordor"})
+    assert "Mordor pressed the siege of Osgiliath, seat of Gondor." in text
+    assert "30 of the 90" in text
+
+    conquest = Event(
+        id=3, year=3019, type="conquest", importance=90, location_id=4,
+        subject_ids=[10, 20],
+        payload={"conqueror_faction_id": 20, "razed": True, "regions": [7, 8]},
+    )
+    text = _dossier(conquest, {10: "Gondor", 20: "Mordor"})
+    assert "Osgiliath fell, and with it the realm of Gondor passed to Mordor." in text
+    assert "Lands taken: Ithilien, Anórien." in text
+    assert "did not stay to rule" in text  # the razed flag reads in prose
+
+    razing = Event(
+        id=4, year=3019, type="razing", importance=80, location_id=4,
+        subject_ids=[10, 20],
+        payload={"razer_faction_id": 20, "regions": [7]},
+    )
+    text = _dossier(razing, {20: "Mordor"})
+    assert "Mordor laid Osgiliath and the lands about it waste." in text
+    assert "Left in ruin, held by none: Ithilien." in text
+
+
+def test_generic_dossier_fallback_resolves_faction_ids(qapp):
+    treaty = Event(
+        id=5, year=3010, type="treaty", importance=40,
+        text="Gondor and Rohan swore friendship",
+        payload={"initiator_faction_id": 10, "warmth": 25, "note": None},
+    )
+    text = _dossier(treaty, {10: "Gondor"})
+    assert "── TA 3010 · diplomacy · notable ──" in text
+    assert "initiator: Gondor" in text  # id resolved, suffix dropped
+    assert "warmth: 25" in text
+    assert "note" not in text  # None values are skipped
+
+    bare = Event(id=6, year=3011, type="some_future_type", importance=10)
+    text = _dossier(bare)
+    assert text == "── TA 3011 · other · minor ──"  # empty payload stays sane
+
+
+def test_annals_click_pushes_dossier_into_inspection_dock(qapp):
+    window = build_window("fellowship")
+    window._map.focus_tile = lambda col, row: None
+    try:
+        window._annals_model.append_events(
+            [_event(START_YEAR, type_="treaty", importance=90)]  # unplaced
+        )
+        model = window._annals_model
+        window._on_annals_event_clicked(model.index(1))  # the event row
+        assert f"── TA {START_YEAR} · diplomacy · notable ──" in (
+            window._inspection_label.text()
+        )
+        window._on_annals_event_clicked(model.index(0))  # header: dock untouched
+        assert "diplomacy" in window._inspection_label.text()
+    finally:
+        window.close()
+
+
 def test_zoom_out_stops_at_fit_the_map(qapp):
     # The zoom-out floor is dynamic: however hard you spin the wheel, the scale
     # never drops below "the whole map just fits the viewport".
