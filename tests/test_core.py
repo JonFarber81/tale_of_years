@@ -31,10 +31,13 @@ def test_entity_base_fields_and_default_status():
     assert e.status == EntityStatus.ACTIVE.value == "active"
 
 
-def test_pipeline_has_eight_phases_in_fixed_order():
+def test_pipeline_phases_run_in_fixed_order():
+    # The phase order is the reproducibility contract; succession (ticket 08) sits
+    # right after the lifecycle phase so a death is answered in the same tick.
     names = [name for name, _ in PIPELINE]
     assert names == [
         "aging_births_deaths",
+        "succession",
         "faction_decisions",
         "diplomacy",
         "movement",
