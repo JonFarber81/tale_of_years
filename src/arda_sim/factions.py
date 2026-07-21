@@ -195,6 +195,14 @@ class Faction(Entity):
     baseline_disposition: Dict[str, int] = field(default_factory=dict)
     at_war_with: List[int] = field(default_factory=list)
     treaties: List[int] = field(default_factory=list)
+    # War-layer tuning state (issue #13). ``march_speed`` is an authored per-faction
+    # miles/year pace (0 = derive from ``people`` via :func:`faction_march_speed`),
+    # replacing the single global rate. ``muster_cooldown_until`` is the TA year
+    # before which this faction may not (re-)muster or lend a levy — set when a host
+    # it contributed to leaves play, scaled by that host's size, so a great hosting
+    # depletes the realm's manpower for longer (ADR-0009).
+    march_speed: int = 0
+    muster_cooldown_until: int = 0
 
     @property
     def kind_tag(self) -> FactionKind:
@@ -225,6 +233,31 @@ class Faction(Entity):
 
 
 register_entity_type("faction", Faction)
+
+
+# -- march pace (issue #13) -----------------------------------------------
+
+# Default miles/year by People, replacing the single global rate: cavalry-realms
+# march fastest (Rohan carries an authored override above this), Elves are lithe,
+# Men are the mid reference, Orc-hosts their own profile, Dwarves are slower, and
+# Hobbits (who never muster) slowest. A faction's authored ``march_speed`` beats
+# this when set (see :func:`faction_march_speed`).
+_PEOPLE_MARCH_SPEED: Dict[str, int] = {
+    People.MEN.value: 180,
+    People.ELVES.value: 200,
+    People.DWARVES.value: 140,
+    People.ORCS.value: 170,
+    People.HOBBITS.value: 120,
+}
+_DEFAULT_MARCH_SPEED = 180
+
+
+def faction_march_speed(faction: Faction) -> int:
+    """A faction's marching pace (miles/year): its authored ``march_speed`` if set,
+    else the default for its ``people``. A coalition marches at its lead's pace."""
+    if faction.march_speed > 0:
+        return faction.march_speed
+    return _PEOPLE_MARCH_SPEED.get(faction.people, _DEFAULT_MARCH_SPEED)
 
 
 # -- derived fields -------------------------------------------------------
@@ -293,6 +326,7 @@ def add_faction(
     allegiance_faction_id: Optional[int] = None,
     commitment: int = 0,
     output: Optional[Dict[str, int]] = None,
+    march_speed: int = 0,
     status: str = EntityStatus.ACTIVE.value,
 ) -> Faction:
     """Create and register a Faction with a fresh id at the current year.
@@ -328,6 +362,7 @@ def add_faction(
         allegiance_faction_id=allegiance_faction_id,
         commitment=commitment,
         output=dict(output) if output else {},
+        march_speed=march_speed,
     )
     world.entities[faction.id] = faction
     return faction
@@ -519,6 +554,7 @@ class _FactionSeed:
     allegiance: Optional[str] = None
     output: tuple = ()  # ((unit, weight), ...)
     treasury: int = 0
+    march_speed: int = 0  # authored miles/year override; 0 = derive from people
 
 
 # The canon TA 2965 roster. Region labels are the substrate's own
@@ -544,6 +580,7 @@ _ROSTER: tuple = (
         goals=("muster", "guard_the_fords"),
         disposition=(("Gondor", 80), ("Mordor", -80), ("Isengard", 10), ("Dunland", -40)),
         treasury=30,
+        march_speed=320,  # the Riddermark rides — a mounted host far outpaces foot
     ),
     _FactionSeed(
         "Dúnedain of the North", FactionKind.REALM, people=People.MEN,
@@ -728,6 +765,7 @@ def seed_factions(
             gateway_location_id=gateway_id,
             commitment=s.commitment,
             output={unit: weight for unit, weight in s.output},
+            march_speed=s.march_speed,
         )
         by_name[s.name] = faction
         if leader is not None:

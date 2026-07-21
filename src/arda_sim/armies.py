@@ -33,7 +33,14 @@ import random
 from . import TICKS_PER_YEAR
 from .characters import RACE_CONFIG, Character, Race, Role, characters
 from .entities import Entity, EntityStatus, Event, register_entity_type
-from .factions import Faction, Intent, deciding_factions, factions
+from .factions import (
+    Faction,
+    Intent,
+    People,
+    deciding_factions,
+    faction_march_speed,
+    factions,
+)
 from .tiles import Terrain, TileGrid, UNOWNED, move_cost
 from .world import World
 
@@ -46,9 +53,19 @@ ARMY_DISBANDED_EVENT = "army_disbanded"  # a host bled to nothing on the march
 
 # Muster sizing: a base levy plus a slice of the faction's territory-derived
 # military strength. Pure and RNG-free, so the same faction always raises the
-# same host (the ticket's "muster sizing deterministic").
-MUSTER_BASE = 500
-MUSTER_PER_STRENGTH = 40
+# same host (the ticket's "muster sizing deterministic"). Tuned up for issue #13
+# so each host that *is* raised (rarely, and often as a coalition summing several
+# of these) is a heavy, several-fold-larger war-effort, not a small annual levy.
+MUSTER_BASE = 2000
+MUSTER_PER_STRENGTH = 120
+
+# Muster cadence (issue #13). A faction that fields a host cannot raise or lend to
+# another until this many years pass *after that host leaves play* — a base rest
+# plus a slice that grows with the size of the host, so a great hosting depletes
+# the realm's manpower for longer (ADR-0009). All integer; keeps hosts episodic.
+MUSTER_COOLDOWN_BASE = 4
+MUSTER_COOLDOWN_PER_SIZE = 2500  # +1 year of rest per this much mustered size
+MUSTER_COOLDOWN_CAP = 15
 
 # March pace. A foot host makes ~180 miles a year; :func:`tick_speed` turns that
 # into an integer per-tick effort budget spent against tile move-costs (a tile is
@@ -67,11 +84,6 @@ ATTR_HARSH = 30  # barren / marsh / bare mountain
 ATTR_ROUGH = 15  # forest / hills / river crossings
 ATTR_HOSTILE = 20  # per tick off friendly soil, ×supply_lag (capped)
 ATTR_LAG_CAP = 5  # supply_lag saturates here, bounding the deep-in-hostile toll
-
-# Hostility this deep (or an actual war) makes a mustered host march on the enemy
-# seat; milder tempers raise only a standing garrison. Mirrors the diplomacy
-# hostility threshold without importing it (kept a local movement knob).
-_MARCH_HOSTILITY = 40
 
 # Cost to enter an otherwise-impassable objective tile (a fortress on a mountain
 # is still enterable by the host besieging it). Plains-equivalent, kept integer.
@@ -105,11 +117,18 @@ class Army(Entity):
     col: int = 0
     row: int = 0
     size: int = 0
+    mustered_size: int = 0  # strength at muster; battle destruction is proportional to it
     target_faction_id: Optional[int] = None
     dest_site_id: Optional[int] = None
     path: List[List[int]] = field(default_factory=list)
     move_points: int = 0
     miles_per_year: int = DEFAULT_MILES_PER_YEAR
+    # A coalition's contributing factions (lead first). Each rests under a muster
+    # cooldown when this host leaves play; ``cooldown_years`` is that rest, scaled
+    # at muster time from the host's size (ADR-0009). Empty on a bare test host —
+    # :func:`end_host` then falls back to the lead ``faction_id`` alone.
+    contributor_ids: List[int] = field(default_factory=list)
+    cooldown_years: int = 0
     supply_lag: int = 0  # consecutive marching ticks off friendly soil (attrition depth)
     siege_progress: int = 0  # accumulated progress against the seat it besieges (ticket 11)
     prominence: int = 0  # salience input, read by chronicle.subject_prominence
@@ -137,6 +156,15 @@ def muster_size(faction: Faction) -> int:
     fields the same number.
     """
     return MUSTER_BASE + max(0, faction.military_strength) * MUSTER_PER_STRENGTH
+
+
+def host_cooldown_years(size: int) -> int:
+    """Years a contributor rests after a host of ``size`` leaves play (integer).
+
+    A base rest plus a slice that grows with the host raised, capped — so a great
+    coalition hosting keeps its realms out of the field far longer than a small levy.
+    """
+    return min(MUSTER_COOLDOWN_CAP, MUSTER_COOLDOWN_BASE + max(0, size) // MUSTER_COOLDOWN_PER_SIZE)
 
 
 def tick_speed(miles_per_year: int, miles_per_tile: int) -> int:
@@ -245,36 +273,123 @@ def movement(world: World, rng: random.Random) -> List[Event]:
 # -- muster ---------------------------------------------------------------
 
 def _muster(world: World, grid: TileGrid) -> List[Event]:
-    """Raise a host for each faction that chose force and holds none yet."""
+    """Raise a host for each faction that chose force and may lawfully take the field.
+
+    A host is raised only while the faction is genuinely **at war** (not mere
+    hostility), is **not within a muster cooldown**, and is not already committed to
+    a standing host — the cadence gate that keeps hosts episodic (ADR-0009).
+    """
     events: List[Event] = []
     for faction in deciding_factions(world):
         intent = faction.current_intent.get("intent")
         if intent not in (Intent.MUSTER.value, Intent.ATTACK.value):
             continue
-        if _has_army(world, faction.id):
+        if not _can_muster(world, faction):
             continue
         seat = _seat_tile(grid, faction)
         if seat is None:  # no capital to raise a host at (most cultures)
             continue
-        events.append(_raise_army(world, grid, faction, seat))
+        target = _march_target(world, faction)  # non-None: _can_muster gated on it
+        contributors = _coalition(world, faction, target)
+        events.append(_raise_army(world, grid, faction, seat, target, contributors))
     return events
 
 
+def _coalition(world: World, lead: Faction, target: Faction) -> List[Faction]:
+    """The factions that Gather into one host behind ``lead`` against ``target``.
+
+    The lead plus each of its **treaty-allies, vassals, or overlord** that is *also*
+    at war with the same enemy and itself free to muster (past its cooldown, not
+    already committed). Sharing a war is what combines levies — an unbound third
+    party at war with the same enemy fields its own host (ADR-0009). Lead first,
+    then the rest in id order (deterministic).
+    """
+    members = [lead]
+    for other in _bound_factions(world, lead):
+        if other.id == lead.id or not other.alive or other.is_provider:
+            continue
+        if not other.is_at_war_with(target.id):
+            continue
+        if world.current_year < other.muster_cooldown_until:
+            continue
+        if _is_committed(world, other.id):
+            continue
+        members.append(other)
+    return members
+
+
+def _bound_factions(world: World, lead: Faction) -> List[Faction]:
+    """A faction's treaty-allies, vassals, and overlord (id order) — its co-belligerent
+    pool for a Gathering."""
+    ids = set(lead.treaties)
+    if lead.overlord_faction_id is not None:
+        ids.add(lead.overlord_faction_id)
+    for other in factions(world, alive_only=True):
+        if other.overlord_faction_id == lead.id:
+            ids.add(other.id)
+    return [f for i in sorted(ids) if (f := _faction(world, i)) is not None]
+
+
+def _can_muster(world: World, faction: Faction) -> bool:
+    """Whether ``faction`` may raise a host this tick: past its cooldown, not
+    already committed to a host, and holding an actual war enemy to march on."""
+    if world.current_year < faction.muster_cooldown_until:
+        return False
+    if _is_committed(world, faction.id):
+        return False
+    return _march_target(world, faction) is not None
+
+
+def _is_committed(world: World, faction_id: int) -> bool:
+    """Whether a faction already fields *or* lends a levy to a living host."""
+    for army in armies(world, alive_only=True):
+        if army.faction_id == faction_id or faction_id in army.contributor_ids:
+            return True
+    return False
+
+
+def end_host(world: World, army: Army) -> None:
+    """Rest every faction that contributed to a host that has just left play.
+
+    Sets each contributor's muster cooldown to the current year plus the host's
+    size-scaled ``cooldown_years`` (never shortening an existing, longer rest). A
+    bare host with no recorded contributors falls back to its lead faction alone.
+    Call this wherever a host is disbanded or destroyed, so the cadence gate sees
+    the recovery no matter which phase ended the host.
+    """
+    until = world.current_year + army.cooldown_years
+    ids = army.contributor_ids or ([army.faction_id] if army.faction_id is not None else [])
+    for fid in ids:
+        faction = _faction(world, fid)
+        if faction is not None:
+            faction.muster_cooldown_until = max(faction.muster_cooldown_until, until)
+
+
 def _raise_army(
-    world: World, grid: TileGrid, faction: Faction, seat: Tuple[int, int]
+    world: World,
+    grid: TileGrid,
+    faction: Faction,
+    seat: Tuple[int, int],
+    target: Faction,
+    contributors: List[Faction],
 ) -> Event:
-    """Instantiate a host at ``seat``, size it, lead it, and set its march."""
-    leader = _muster_leader(world, faction)
-    target = _march_target(world, faction)
+    """Gather one coalition host at ``seat``: sum its levies, lead it, set its march.
+
+    ``faction`` is the lead (the host's owner and muster point); ``contributors`` is
+    the coalition (lead first). Size is the sum of every contributor's levy; the
+    general is the ablest leader across the *whole* coalition down the ladder; the
+    host marches at the lead's pace and rests every contributor when it ends.
+    """
+    leader = _coalition_leader(world, contributors, faction)
     dest_site_id: Optional[int] = None
     path: List[List[int]] = []
-    if target is not None:
-        dest = _seat_tile(grid, target)
-        if dest is not None:
-            candidate = find_path(grid, seat, dest)
-            if candidate:  # reachable — commit to the march
-                dest_site_id = target.capital_location_id
-                path = candidate
+    dest = _seat_tile(grid, target)
+    if dest is not None:
+        candidate = find_path(grid, seat, dest)
+        if candidate:  # reachable — commit to the march
+            dest_site_id = target.capital_location_id
+            path = candidate
+    size = sum(muster_size(c) for c in contributors)
     army = Army(
         id=world.next_id(),
         kind="army",
@@ -284,11 +399,14 @@ def _raise_army(
         leader_id=leader.id if leader is not None else None,
         col=seat[0],
         row=seat[1],
-        size=muster_size(faction),
-        target_faction_id=target.id if (target is not None and path) else None,
+        size=size,
+        mustered_size=size,
+        target_faction_id=target.id if path else None,
         dest_site_id=dest_site_id,
         path=path,
-        miles_per_year=DEFAULT_MILES_PER_YEAR,
+        miles_per_year=faction_march_speed(faction),
+        contributor_ids=[c.id for c in contributors],
+        cooldown_years=host_cooldown_years(size),
         prominence=faction.prominence,
     )
     world.entities[army.id] = army
@@ -297,7 +415,12 @@ def _raise_army(
     subjects = [army.id, faction.id]
     if leader is not None:
         subjects.append(leader.id)
-    payload: Dict[str, object] = {"size": army.size, "faction_id": faction.id}
+    payload: Dict[str, object] = {
+        "size": army.size,
+        "faction_id": faction.id,
+        "led": leader is not None,
+        "contributors": [c.id for c in contributors],
+    }
     if army.target_faction_id is not None:
         payload["target_faction_id"] = army.target_faction_id
     return world.new_event(
@@ -308,23 +431,49 @@ def _raise_army(
     )
 
 
-def _muster_leader(world: World, faction: Faction) -> Optional[Character]:
-    """The faction's ablest field-eligible member (highest martial+leadership).
+# The roles a host's general may be drawn from at the top rung: an idle member, a
+# ranger, or a standing general. A ruler and an heir are excluded here (rulers stay
+# home; heirs are the *second* rung), and are handled explicitly below.
+_FIELD_ROLES = (Role.NONE.value, Role.RANGER.value, Role.GENERAL.value)
 
-    Its standing ruler/heir stays home (rule and succession are theirs), and a
-    character already leading a host is unavailable; ties break by lowest id.
-    Returns ``None`` when no one is free — leaderless hosts are allowed.
+
+def _coalition_leader(
+    world: World, contributors: List[Faction], lead: Faction
+) -> Optional[Character]:
+    """Walk the leader ladder across the whole coalition — hosts are always led.
+
+    Rung 1: the ablest field-eligible **non-heir** (idle/ranger/general) of any
+    contributor. Rung 2: failing that, the ablest **heir** across the coalition —
+    who may then die in battle, seating the next heir at the next succession. Rung
+    3: failing even that, a freshly **generated named captain** for the lead (a
+    non-dynastic character outside succession/kinship). So a leaderless host never
+    marches (ADR-0009). Ties break by lowest id; a character already leading a host
+    or standing as a ruler is unavailable.
     """
-    taken = {a.leader_id for a in armies(world, alive_only=True) if a.leader_id}
+    faction_ids = {c.id for c in contributors}
+    excluded = {a.leader_id for a in armies(world, alive_only=True) if a.leader_id}
+    excluded.update(c.leader_id for c in contributors if c.leader_id is not None)
+    field_leader = _ablest(world, faction_ids, excluded, _FIELD_ROLES)
+    if field_leader is not None:
+        return field_leader
+    heir = _ablest(world, faction_ids, excluded, (Role.HEIR.value,))
+    if heir is not None:
+        return heir
+    return generate_captain(world, lead)
+
+
+def _ablest(
+    world: World, faction_ids: set, excluded: set, roles: Tuple[str, ...]
+) -> Optional[Character]:
+    """The ablest (highest martial+leadership) living, mature member of any of
+    ``faction_ids`` in one of ``roles`` and not ``excluded``; lowest id breaks ties."""
     year = world.current_year
     best: Optional[Character] = None
     best_key: Optional[Tuple[int, int]] = None
     for char in characters(world, alive_only=True):
-        if char.faction_id != faction.id or char.id in taken:
+        if char.faction_id not in faction_ids or char.id in excluded:
             continue
-        if char.id == faction.leader_id:
-            continue
-        if char.role not in (Role.NONE.value, Role.RANGER.value, Role.GENERAL.value):
+        if char.role not in roles:
             continue
         if char.age(year) < RACE_CONFIG[Race(char.race)].maturity_age:
             continue
@@ -337,34 +486,71 @@ def _muster_leader(world: World, faction: Faction) -> Optional[Character]:
     return best
 
 
+# Generated-captain traits: a competent-but-unexceptional field officer. Kept
+# deterministic and RNG-free (movement draws no RNG — it must never perturb the
+# shared stream), so the spread is derived from integer identity, not a draw.
+_CAPTAIN_TRAIT_BASE = 45
+_CAPTAIN_TRAIT_SPREAD = 30
+
+
+def generate_captain(world: World, lead: Faction) -> Character:
+    """Raise a generated named captain to lead ``lead``'s host — the ladder's floor.
+
+    A non-dynastic character (no parents, outside the succession/kinship line) with
+    modest generated ``martial``/``leadership``, seated as a :data:`Role.GENERAL`.
+    Its traits are a deterministic function of the lead's id and the tick (no RNG),
+    so a run stays byte-stable. This deliberately grows a new, generated
+    sub-population of captains over a long history.
+    """
+    from .characters import add_character
+
+    race = _people_race(lead.people)
+    mature = RACE_CONFIG[race].maturity_age
+    mix = (lead.id * 2_654_435_761 + world.tick * 40_503) & 0xFFFFFFFF
+    martial = _CAPTAIN_TRAIT_BASE + mix % _CAPTAIN_TRAIT_SPREAD
+    leadership = _CAPTAIN_TRAIT_BASE + (mix // _CAPTAIN_TRAIT_SPREAD) % _CAPTAIN_TRAIT_SPREAD
+    captain = add_character(
+        world,
+        name=f"Captain of {lead.name}",
+        race=race,
+        birth_year=world.current_year - (mature + 5),  # a seasoned adult of its race
+        sex="M",
+        role=Role.GENERAL,
+        location_id=lead.capital_location_id,
+        faction_id=lead.id,
+        traits={"martial": martial, "leadership": leadership},
+    )
+    return captain
+
+
+# People → the race a generated captain of that folk is (approximate: Gondor's
+# captains read as Men, not Dúnedain — close enough for a levied officer).
+_PEOPLE_RACE = {
+    People.MEN.value: Race.MAN,
+    People.ELVES.value: Race.ELF,
+    People.DWARVES.value: Race.DWARF,
+    People.ORCS.value: Race.ORC,
+    People.HOBBITS.value: Race.HOBBIT,
+}
+
+
+def _people_race(people: str) -> Race:
+    return _PEOPLE_RACE.get(people, Race.MAN)
+
+
 def _march_target(world: World, faction: Faction) -> Optional[Faction]:
-    """The power a mustered host marches on: a war enemy, else the faction it most
-    hates (past :data:`_MARCH_HOSTILITY`), else ``None`` — a standing garrison.
+    """The war enemy a mustered host marches on, or ``None`` when there is none.
 
     Only an active, conquerable holder with a seat qualifies (providers hold no
-    ground and are never a march objective); lowest id breaks ties.
+    ground and are never a march objective); the lowest-id at-war enemy wins. Mere
+    hostility no longer raises a host — a faction musters only when genuinely **at
+    war** (ADR-0009), which is exactly what this returning ``None`` gates on.
     """
     for enemy_id in faction.at_war_with:  # already sorted ascending
         enemy = _faction(world, enemy_id)
         if _is_march_objective(enemy):
             return enemy
-    intent_target = faction.current_intent.get("target_faction_id")
-    if intent_target:
-        target = _faction(world, intent_target)
-        if _is_march_objective(target):
-            return target
-    worst: Optional[Faction] = None
-    worst_disp: Optional[int] = None
-    for other in factions(world, alive_only=True):
-        if other.id == faction.id or not _is_march_objective(other):
-            continue
-        disp = faction.disposition_toward(other.id)
-        if disp > -_MARCH_HOSTILITY:  # not hated deeply enough to march on
-            continue
-        if worst_disp is None or disp < worst_disp:  # strict: lowest id wins ties
-            worst_disp = disp
-            worst = other
-    return worst
+    return None
 
 
 def _is_march_objective(target: Optional[Faction]) -> bool:
@@ -398,6 +584,7 @@ def _advance(world: World, grid: TileGrid, army: Army) -> List[Event]:
             army.size = max(0, army.size - loss)
     if army.size <= 0:  # bled to nothing on the road
         army.status = EntityStatus.DEAD.value
+        end_host(world, army)  # its contributors now rest under a muster cooldown
         events.append(
             world.new_event(
                 type=ARMY_DISBANDED_EVENT,

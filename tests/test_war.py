@@ -109,16 +109,19 @@ def test_only_at_war_hosts_fight():
     assert not [e for e in war(w, w.rng) if e.type == BATTLE_EVENT]
 
 
-def test_hosts_sharing_or_bordering_a_tile_give_battle():
+def test_hosts_give_battle_only_when_they_share_a_tile():
+    # Post-#13: adjacency no longer triggers a clash — battles concentrate where
+    # hosts actually meet, so incidental border skirmishes vanish.
     w = World.new_run("clash")
     w.grid = _grid(4, 1)
     a = add_faction(w, "A", FactionKind.REALM)
     b = add_faction(w, "B", FactionKind.REALM)
     _at_war(a, b)
-    _army(w, a.id, 1, 0)
-    _army(w, b.id, 2, 0)  # adjacent
-    battles = [e for e in war(w, w.rng) if e.type == BATTLE_EVENT]
-    assert len(battles) == 1
+    ha = _army(w, a.id, 1, 0)
+    hb = _army(w, b.id, 2, 0)  # merely adjacent — no battle
+    assert not [e for e in war(w, w.rng) if e.type == BATTLE_EVENT]
+    hb.col = 1  # now on the same tile
+    assert len([e for e in war(w, w.rng) if e.type == BATTLE_EVENT]) == 1
 
 
 def test_strength_dominates_on_average_but_upsets_occur():
@@ -167,6 +170,92 @@ def test_a_shattered_host_is_destroyed_not_merely_beaten():
     tiny = _army(w, b.id, 1, 0, size=120)  # well under the destroy threshold once it loses
     war(w, w.rng)
     assert not tiny.alive and tiny.status == EntityStatus.DEAD.value
+
+
+def test_destruction_is_proportional_to_a_hosts_mustered_strength():
+    # A big host reduced below a *fraction of what it mustered* is shattered, even
+    # though its absolute remnant is far above the old flat floor (issue #13).
+    w = World.new_run("proportional")
+    w.grid = _grid(3, 1)
+    a = add_faction(w, "A", FactionKind.REALM)
+    b = add_faction(w, "B", FactionKind.REALM)
+    _at_war(a, b)
+    _army(w, a.id, 1, 0, size=40000)
+    big = _army(w, b.id, 1, 0, size=10000)
+    big.mustered_size = 10000  # it took the field 10k strong
+    war(w, w.rng)
+    # A decisive loss (75% casualties → ~2500 left) is below 25% of 10000 → destroyed,
+    # despite ~2500 men dwarfing the old flat 100-man floor.
+    assert not big.alive and big.status == EntityStatus.DEAD.value
+
+
+# =========================================================================
+# Evasion — giving vs. refusing battle (issue #13)
+# =========================================================================
+
+def _evasion_grid(w):
+    """A 6-wide strip; the defender's seat is at col 0, the clash at col 3."""
+    seat = Site("Home", 0, 0, "town", 1)
+    grid = _grid(6, 1, sites=[seat])
+    w.grid = grid
+    return grid, seat
+
+
+def test_an_outmatched_host_can_both_escape_and_be_caught():
+    # A defender the pursuer badly outmatches, off its seat with a path home,
+    # attempts a seeded evasion that can go either way over many seeds.
+    escapes = caught_and_fought = 0
+    for i in range(80):
+        w = World.new_run(f"evade-{i}")
+        grid, seat = _evasion_grid(w)
+        defender = add_faction(w, "Weak", FactionKind.REALM, capital_location_id=1)
+        pursuer = add_faction(w, "Strong", FactionKind.REALM)
+        _at_war(defender, pursuer)
+        _army(w, defender.id, 3, 0, size=1000)  # off its home seat (col 0)
+        _army(w, pursuer.id, 3, 0, size=100000)  # 100x — well over the 1.5x threshold
+        events = war(w, w.rng)
+        if any(e.type == war_mod.EVASION_EVENT for e in events):
+            escapes += 1
+        elif any(e.type == BATTLE_EVENT for e in events):
+            caught_and_fought += 1
+    assert escapes > 0  # sometimes it slips away
+    assert caught_and_fought > 0  # ...and sometimes it is run down and must fight
+
+
+def test_a_host_defending_its_own_seat_cannot_evade():
+    # Standing on its capital seat, an outmatched host is besieged — it must give
+    # battle, never slipping away, no matter how badly outmatched.
+    saw_battle = False
+    for i in range(20):
+        w = World.new_run(f"besieged-{i}")
+        grid, seat = _evasion_grid(w)
+        defender = add_faction(w, "Weak", FactionKind.REALM, capital_location_id=1)
+        pursuer = add_faction(w, "Strong", FactionKind.REALM)
+        _at_war(defender, pursuer)
+        grid.owner = [defender.id] + [UNOWNED] * 5
+        _army(w, defender.id, 0, 0, size=1000)  # standing on its own seat
+        _army(w, pursuer.id, 0, 0, size=100000)
+        events = war(w, w.rng)
+        assert not any(e.type == war_mod.EVASION_EVENT for e in events)  # never evades
+        saw_battle = saw_battle or any(e.type == BATTLE_EVENT for e in events)
+    assert saw_battle
+
+
+def test_evasion_odds_rise_with_the_generals_leadership_and_guile():
+    w = World.new_run("odds")
+    grid, seat = _evasion_grid(w)
+    faction = add_faction(w, "F", FactionKind.REALM, capital_location_id=1)
+    dull = _army(w, faction.id, 3, 0, size=1000)
+    able = _army(w, faction.id, 3, 0, size=1000)
+    pursuer = _army(w, faction.id, 3, 0, size=10000)
+    from arda_sim.characters import add_character
+    cunning = add_character(w, "Cunning", Race.MAN, 2900,
+                            traits={"leadership": 90, "guile": 90})
+    able.leader_id = cunning.id
+    # A mild strength edge (1.6x) so the leader term isn't swamped and clamped.
+    dull_odds = war_mod._evasion_odds(w, pursuer, dull, 1600, 1000)
+    able_odds = war_mod._evasion_odds(w, pursuer, able, 1600, 1000)
+    assert able_odds > dull_odds  # a cunning captain rallies a cleaner withdrawal
 
 
 # =========================================================================
