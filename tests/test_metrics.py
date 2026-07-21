@@ -57,9 +57,11 @@ def test_empty_stream_is_all_zero_not_a_crash():
 
 
 def test_summary_reads_a_real_seeded_run():
+    # War is gated by the rising Shadow now (ADR-0012), so hosts take the field
+    # only once the West wakes to Mordor — run into the War-of-the-Ring window.
     world, _grid, _ = seed_world("metrics-run")
-    events = run_years(world, 20)
-    s = war_summary(events, span_years=20)
+    events = run_years(world, 45)
+    s = war_summary(events, span_years=45)
     assert s.musters > 0  # a canon-pressured run puts hosts in the field
     assert s.median_host_size > 0
     assert 0 <= s.pct_led <= 100

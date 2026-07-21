@@ -167,20 +167,73 @@ def test_provider_pact_deepens_an_aligned_provider():
 
 # -- war: the flag is owned here ------------------------------------------
 
+class _AlwaysRoll:
+    """An rng stand-in whose ``randrange`` always clears the declaration roll."""
+
+    def randrange(self, _n):
+        return 0
+
+
+def _provoke(target):
+    """Make ``target`` count as *actually threatening* (ADR-0012): belligerent
+    lately, so a provoked, ready aggressor may declare on it."""
+    target.at_war_with = [999]
+
+
 def test_attack_intent_raises_a_symmetric_war_flag_and_is_idempotent():
     w, a, b = _two_realms(-50, -50)
+    _provoke(b)  # b is belligerent lately -> a's hostility may tip into war
     a.current_intent = {"intent": Intent.ATTACK.value, "target_faction_id": b.id}
-    events = dip._maybe_declare_war(w, a)
+    events = dip._maybe_declare_war(w, _AlwaysRoll(), a)
     assert a.is_at_war_with(b.id) and b.is_at_war_with(a.id)
     assert events[0].type == WAR_DECLARED_EVENT and events[0].payload["betrayal"] is False
-    assert dip._maybe_declare_war(w, a) == []  # already at war — no second declaration
+    # already at war -> no second declaration (and now at war, readiness would bar it anyway)
+    assert dip._maybe_declare_war(w, _AlwaysRoll(), a) == []
+
+
+def test_hostility_alone_no_longer_declares_war_on_a_quiet_neighbour():
+    # ADR-0012: disposition is a ceiling, not a trigger. A dormant, weak neighbour
+    # (not at war, no rising Shadow) provokes no declaration however deep the enmity.
+    w, a, b = _two_realms(-100, -100)
+    a.current_intent = {"intent": Intent.ATTACK.value, "target_faction_id": b.id}
+    assert dip._maybe_declare_war(w, _AlwaysRoll(), a) == []
+    assert not a.is_at_war_with(b.id)
+
+
+def test_readiness_bars_declaring_a_second_war_while_already_at_war():
+    w, a, b = _two_realms(-100, -100)
+    _provoke(b)
+    a.at_war_with = [777]  # already committed on another front
+    a.current_intent = {"intent": Intent.ATTACK.value, "target_faction_id": b.id}
+    assert dip._maybe_declare_war(w, _AlwaysRoll(), a) == []
+
+
+def test_readiness_bars_declaring_while_within_a_muster_cooldown():
+    w, a, b = _two_realms(-100, -100)
+    _provoke(b)
+    a.muster_cooldown_until = w.current_year + 5
+    a.current_intent = {"intent": Intent.ATTACK.value, "target_faction_id": b.id}
+    assert dip._maybe_declare_war(w, _AlwaysRoll(), a) == []
+
+
+def test_a_risen_dark_realm_provokes_the_west_past_the_visibility_threshold():
+    # The dark realm alone carries a sauron_strength; once it climbs past the
+    # visibility threshold the West perceives the Shadow and may declare.
+    w, a, b = _two_realms(-100, -100)
+    a.current_intent = {"intent": Intent.ATTACK.value, "target_faction_id": b.id}
+    b.sauron_strength = dip._VISIBILITY_THRESHOLD - 1
+    assert dip._maybe_declare_war(w, _AlwaysRoll(), a) == []  # still below visibility
+    b.sauron_strength = dip._VISIBILITY_THRESHOLD
+    events = dip._maybe_declare_war(w, _AlwaysRoll(), a)
+    assert events and a.is_at_war_with(b.id)
 
 
 def test_declaring_war_on_a_treaty_partner_is_a_betrayal_that_tears_the_pact():
     w, a, b = _two_realms(45, 45)
     dip._sign_treaty(w, a, b)  # disposition now 65 both ways
+    _provoke(b)
     a.current_intent = {"intent": Intent.ATTACK.value, "target_faction_id": b.id}
-    events = dip._maybe_declare_war(w, a)
+    events = dip._maybe_declare_war(w, _AlwaysRoll(), a)
     assert events[0].payload["betrayal"] is True
     assert not a.has_treaty_with(b.id) and not b.has_treaty_with(a.id)
     assert a.disposition_toward(b.id) == -5  # 65 + (-70) betrayal jump
@@ -190,8 +243,9 @@ def test_providers_are_never_war_targets():
     w = World.new_run("nowar")
     a = add_faction(w, "A", FactionKind.REALM)
     prov = add_faction(w, "P", FactionKind.PROVIDER, gateway_location_id=1)
+    _provoke(prov)
     a.current_intent = {"intent": Intent.ATTACK.value, "target_faction_id": prov.id}
-    assert dip._maybe_declare_war(w, a) == [] and not a.is_at_war_with(prov.id)
+    assert dip._maybe_declare_war(w, _AlwaysRoll(), a) == [] and not a.is_at_war_with(prov.id)
 
 
 def test_make_peace_clears_the_flag_symmetrically_and_is_the_only_peace_path():
@@ -217,10 +271,14 @@ def test_phase3_never_makes_peace_on_its_own():
 # -- integration: determinism, symmetry, persistence ----------------------
 
 def test_diplomacy_actually_fires_and_is_deterministic_under_seed():
+    # A long horizon: war is now gated by the rising Shadow (ADR-0012), so a run
+    # opens quiet — declarations begin only once Mordor climbs past visibility,
+    # well into the War-of-the-Ring window. Run far enough to exercise the pact
+    # ladder *and* the (now delayed) war declarations.
     a = seed_world("dup-seed")[0]
     b = seed_world("dup-seed")[0]
-    events_a = run_years(a, 12)
-    run_years(b, 12)
+    events_a = run_years(a, 45)
+    run_years(b, 45)
     assert dumps(a) == dumps(b)
     # the phase genuinely does something over a run
     kinds = {e.type for e in events_a}
@@ -230,8 +288,32 @@ def test_diplomacy_actually_fires_and_is_deterministic_under_seed():
     }
     # a different seed diverges
     c = seed_world("other-seed")[0]
-    run_years(c, 12)
+    run_years(c, 45)
     assert dumps(c) != dumps(a)
+
+
+def test_no_ring_of_wars_erupts_in_the_opening_years():
+    # The fix for issue #26: a strongly-hostile seed roster no longer pile-ons
+    # Mordor the moment a run opens. TA 2965 must open quiet — no war is declared
+    # while the Shadow is still dormant and weak (ADR-0012).
+    world, _grid, _ = seed_world("quiet-open")
+    run_years(world, 5)  # through ~TA 2970
+    assert not any(e.type == WAR_DECLARED_EVENT for e in world.events)
+
+
+def test_mordor_survives_its_buildup_yet_remains_conquerable_at_high_canonicity():
+    # The two-sided definition of done: at high canonicity Mordor lives through its
+    # buildup years (it is no longer extinguished by TA 2968), the West wakes only
+    # once the Shadow has risen, and Mordor still *falls* to the coalition — durable
+    # yet not invincible (issue #26 / ADR-0012). 'epoch' is a seed where it falls.
+    world, _grid, _ = seed_world("epoch")  # default canonicity 1.0
+    mordor = next(f for f in factions(world) if f.name == "Mordor")
+    run_years(world, 3)  # past TA 2968, the old always-death year
+    assert mordor.alive  # survived the buildup the old pile-on denied it
+    run_years(world, 50)  # into and through the War-of-the-Ring window
+    assert not mordor.alive  # a determined coalition still takes the Black Land
+    fall = next(e for e in world.events if e.type == "conquest" and mordor.id in e.subject_ids)
+    assert fall.year > 2985  # it fell late, after a real rising-Shadow arc — not in 2968
 
 
 def test_war_flags_stay_symmetric_across_a_seeded_run():

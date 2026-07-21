@@ -93,6 +93,23 @@ _PROVIDER_MAX = 100
 # of the free folk — never a forced bond, never a touched die elsewhere.
 _CANON_PACT_BONUS = 15  # added to the odds at full canonicity, scaled below it
 
+# Provocation & readiness (issue #26 / ADR-0012): the two gates between a won
+# ATTACK menu and the raised at-war flag. *Disposition is a ceiling, not a
+# trigger* — winning the menu declares war only on a target that is actually
+# threatening (belligerent lately, or the dark realm risen past visibility), and
+# only when the aggressor is free to prosecute a new war (not already at war on
+# another front, past its muster cooldown). Even then the leap is a staggered
+# per-year roll, so declarations spread across years rather than firing a whole
+# ring the moment a run opens.
+# The dark-realm ``sauron_strength`` at which the West perceives the rising Shadow
+# and its enmity may tip into a declaration. Pitched high on purpose: it is only
+# crossed once the canon ramp is well up (~the War-of-the-Ring window at full
+# canonicity), so Mordor gets its long buildup and the West wakes late and
+# strong — never in the opening years. Below it, and at low canonicity where the
+# ramp never climbs this far, the Shadow stays unremarked and 2965's peace holds.
+_VISIBILITY_THRESHOLD = 60
+_DECLARE_ODDS = 20  # per-attempt seeded chance a provoked, ready faction actually declares
+
 
 # =========================================================================
 # Derived stance
@@ -152,7 +169,7 @@ def diplomacy(world: World, rng: random.Random) -> List[Event]:
     for faction in deciding_factions(world):
         intent = faction.current_intent.get("intent")
         if intent == Intent.ATTACK.value:
-            events.extend(_maybe_declare_war(world, faction))
+            events.extend(_maybe_declare_war(world, rng, faction))
         elif intent == Intent.SEEK_PACT.value:
             events.extend(_pursue_pact(world, rng, faction, adjacency()))
     return events
@@ -237,13 +254,27 @@ def _dissolve_stale_vassalage(world: World) -> List[Event]:
 # War declaration (deterministic — phase 2 already made the stochastic choice)
 # =========================================================================
 
-def _maybe_declare_war(world: World, faction: Faction) -> List[Event]:
-    """Raise the symmetric at-war flag on this faction's ATTACK target.
+def _maybe_declare_war(world: World, rng: random.Random, faction: Faction) -> List[Event]:
+    """Raise the symmetric at-war flag on this faction's ATTACK target — but only
+    when disposition's *ceiling* actually tips over into war (ADR-0012).
 
-    A no-op if already at war, or if the target is missing, inactive, a provider
-    (providers are never conquest targets), or itself. Declaring on a faction one
-    holds a treaty or fealty bond with is a **betrayal**: the pact is torn up and
-    disposition sours far harder.
+    Winning the phase-2 ATTACK menu no longer declares war by itself. A no-op if
+    already at war, or if the target is missing, inactive, a provider (never a
+    conquest target), or itself. Beyond that the leap from hostility to the pinned
+    flag is held back by the two gates that keep a run from opening with a ring of
+    simultaneous declarations (issue #26):
+
+    * **Readiness** — the aggressor must be free to prosecute a *new* war: not
+      already at war on another front, and past its muster cooldown.
+    * **Provocation** — the target must be *actually threatening*: belligerent
+      lately (already at war with someone) or, for the dark realm, its
+      ``sauron_strength`` risen past the West's visibility threshold. A dormant,
+      weak neighbour provokes no declaration however old the enmity. Even once
+      provoked and ready the declaration is a staggered per-year **roll**, so a
+      faction commits over time rather than the instant its menu turns.
+
+    Declaring on a treaty or fealty partner is still a **betrayal**: the pact is
+    torn up and disposition sours far harder.
     """
     target_id = faction.current_intent.get("target_faction_id")
     if not target_id or target_id == faction.id:
@@ -252,6 +283,12 @@ def _maybe_declare_war(world: World, faction: Faction) -> List[Event]:
     if target is None or not target.alive or target.is_provider:
         return []
     if faction.is_at_war_with(target_id):
+        return []
+    if not _ready_to_declare(world, faction):
+        return []
+    if not _is_provoking(target):
+        return []
+    if not _roll(rng, _DECLARE_ODDS):
         return []
 
     betrayal = _bound(faction, target)
@@ -555,6 +592,29 @@ def _adjust(faction: Faction, other_id: int, delta: int) -> None:
     updated = dict(faction.disposition)
     updated[key] = max(_DISP_MIN, min(_DISP_MAX, updated.get(key, 0) + delta))
     faction.disposition = updated
+
+
+def _ready_to_declare(world: World, faction: Faction) -> bool:
+    """Whether a faction is free to open a *new* war (ADR-0012 readiness gate): not
+    already at war on another front, and past its muster cooldown — so it can
+    actually prosecute the war it would declare. Staggers declarations across the
+    years rather than firing a whole ring at once."""
+    if faction.at_war_with:
+        return False
+    return world.current_year >= faction.muster_cooldown_until
+
+
+def _is_provoking(target: Faction) -> bool:
+    """Whether a target is *actually threatening* enough to be declared on
+    (ADR-0012 provocation gate): belligerent lately — already at war with someone
+    — or, for the dark realm, its ``sauron_strength`` risen past the West's
+    visibility threshold. A dormant, weak neighbour provokes no declaration
+    however old the enmity, so a quiet realm is left in peace to grow; only the
+    dark realm carries a non-zero ``sauron_strength``, so the visibility clause
+    bites Mordor alone."""
+    if target.at_war_with:
+        return True
+    return target.sauron_strength >= _VISIBILITY_THRESHOLD
 
 
 def _set_at_war(a: Faction, b: Faction) -> None:
