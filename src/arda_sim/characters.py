@@ -262,6 +262,21 @@ def is_immortal(race: Race) -> bool:
     return RACE_CONFIG[race].mortality_kind is MortalityKind.IMMORTAL
 
 
+def _ring_death_factor(world: World, char: "Character") -> int:
+    """Permille multiplier on a character's natural-death odds from a borne One Ring.
+
+    ``1000`` (no effect) for anyone not carrying the Ring — duck-typed on the Ring
+    record so this module keeps no import of :mod:`arda_sim.ring` (which imports
+    this one). A borne Ring suppresses death most while its taint is low, easing
+    back to no effect as corruption climbs (see :func:`arda_sim.ring.ring_longevity_factor`).
+    """
+    for entity in world.entities.values():
+        if getattr(entity, "kind", None) == "ring" and getattr(entity, "bearer_id", None) == char.id:
+            corruption = max(0, min(100, int(getattr(entity, "corruption", 0) or 0)))
+            return 200 + (1000 - 200) * corruption // 100
+    return 1000
+
+
 def _living_characters(world: World) -> List[Character]:
     """Active characters in ascending id order (deterministic iteration)."""
     return [
@@ -291,8 +306,14 @@ def aging_births_deaths(world: World, rng: random.Random) -> List[Event]:
             events.extend(_maybe_depart(world, rng, char))
             continue
         bp = annual_death_bp(race, char.age(year))
-        if bp > 0 and rng.randrange(_TICK_BP_SCALE) < bp:
-            events.append(_kill(world, char, cause="natural"))
+        # A borne One Ring prolongs its bearer (ticket 13): the death *threshold*
+        # is scaled by the Ring's longevity factor, but the roll is drawn exactly
+        # as before whenever the raw curve is non-zero — so the shared RNG stream's
+        # draw count is unchanged for every character (only a bearer's odds move).
+        if bp > 0:
+            threshold = bp * _ring_death_factor(world, char) // 1000
+            if rng.randrange(_TICK_BP_SCALE) < threshold:
+                events.append(_kill(world, char, cause="natural"))
 
     # Pass 2 — births on established couples (both partners still alive after the
     # death pass). Iterate the mothers so each couple rolls exactly once.

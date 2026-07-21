@@ -37,6 +37,7 @@ from ..chronicle import AnnalsFilter, pulse_events, show_all_filter
 from ..entities import Event
 from ..factions import Faction
 from ..playback import Playback
+from ..ring import Ring
 from ..snapshot import Snapshot
 from ..tiles import UNOWNED, TileGrid
 from ..world import format_tick
@@ -77,6 +78,9 @@ from .sim_worker import SimWorker
 _MIN_TPS = 0.25
 _MAX_TPS = 60.0
 _DEFAULT_TPS = 2.0
+
+# The One Ring's dossier accent — the same warm gold as its map marker (ticket 13).
+_RING_ACCENT = "#e9c46a"
 
 
 class MainWindow(QMainWindow):
@@ -249,6 +253,7 @@ class MainWindow(QMainWindow):
             self._fire_pulses(events)
             self._fire_battle_markers(snapshot, events)
         self._map.refresh_armies(self._armies_in(snapshot))
+        self._map.refresh_ring(self._ring_in(snapshot))  # keep the Ring findable (ticket 13)
         # Follow site kind/tier churn (founded/grown/razed, ticket 04). Cheap: the
         # view skips the rebuild unless a marker actually changed. Runs on scrubs
         # too (which restore the shared grid) since those carry no events.
@@ -372,8 +377,18 @@ class MainWindow(QMainWindow):
         The click resolves to one **dossier subject** — a host standing on the
         tile, else a site there, else the owning faction, else the bare tile
         (see CONTEXT.md) — which headlines with full depth; anything else
-        renders only as trimmed context beneath it.
+        renders only as trimmed context beneath it. The One Ring, when it is on
+        the clicked tile, trumps them all: it headlines, with the ordinary tile
+        subject kept as context beneath.
         """
+        ring = self._ring_on(col, row)
+        base = self._describe_tile_subject(col, row)
+        if ring is not None:
+            return self.describe_ring(ring) + base
+        return base
+
+    def _describe_tile_subject(self, col: int, row: int) -> str:
+        """The tile's ordinary dossier subject (host / site / faction / tile)."""
         host = self._army_on(col, row)
         if host is not None:
             return self.describe_army(host)
@@ -440,6 +455,64 @@ class MainWindow(QMainWindow):
             if army.col == col and army.row == row:
                 return army
         return None
+
+    def _ring_in(self, snapshot: Snapshot) -> Optional[Ring]:
+        """The One Ring in a snapshot (there is at most one), or ``None``."""
+        for _id, entity in sorted(snapshot.entities.items()):
+            if isinstance(entity, Ring):
+                return entity
+        return None
+
+    def _ring_on(self, col: int, row: int) -> Optional[Ring]:
+        """The One Ring if it stands on this tile in the current snapshot."""
+        if self._latest_snapshot is None:
+            return None
+        ring = self._ring_in(self._latest_snapshot)
+        if ring is not None and (ring.col, ring.row) == (col, row):
+            return ring
+        return None
+
+    def describe_ring(self, ring: Ring) -> str:
+        """The One Ring dossier (HTML): where it is, its scalars, and its full
+        transfer/bearer journey — inspectable from the tile it rests on."""
+        if ring.borne and self._latest_snapshot is not None:
+            bearer = self._latest_snapshot.entity(ring.bearer_id)
+            possession = f"borne by {bearer.name}" if bearer is not None else "borne"
+        else:
+            site = self._grid.site_by_id(ring.location_id) if ring.location_id else None
+            possession = f"lying at {site.name}" if site is not None else "lying where it fell"
+        parts = [
+            banner("The One Ring", "The One Ring", _RING_ACCENT),
+            stat_grid(
+                [
+                    ("Possession", possession),
+                    ("Corruption", ring.corruption),
+                    ("Pull", ring.pull),
+                    ("Bearers", len(ring.bearer_history)),
+                ]
+            ),
+        ]
+        journey = self._ring_journey(ring)
+        if journey:
+            parts.append(section("Journey"))
+            parts.append(para("<br>".join(journey)))
+        return "".join(parts)
+
+    def _ring_journey(self, ring: Ring) -> List[str]:
+        """The Ring's transfer/bearer history as dossier lines (oldest first).
+
+        Read off the accumulated feed (never the live world), capped at the
+        displayed year so a scrub reads the journey only as far as it had gone.
+        """
+        events = sorted(
+            (
+                ev
+                for ev in self._events
+                if ring.id in ev.subject_ids and ev.year <= self._display_year
+            ),
+            key=lambda ev: (ev.year, ev.id),
+        )
+        return [f"TA {ev.year}: {esc(ev.text or ev.type)}" for ev in events]
 
     def describe_army(self, army: Army) -> str:
         """A host-subject dossier (HTML): strength first, siege when investing,
