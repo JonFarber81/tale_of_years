@@ -1,12 +1,12 @@
 """The tick: a fixed, ordered pipeline of systems.
 
-A year advances by running a fixed list of ``system(world, rng) -> events`` in a
-deterministic order, each mutating authoritative state and returning the events
-it emitted. The single seeded RNG threaded through every system is the
-reproducibility contract.
+A tick — one **month** (``TICKS_PER_YEAR`` ticks make a year) — advances by
+running a fixed list of ``system(world, rng) -> events`` in a deterministic
+order, each mutating authoritative state and returning the events it emitted. The
+single seeded RNG threaded through every system is the reproducibility contract.
 
 In the walking skeleton the eight game phases are registered but empty; a single
-placeholder ``tick`` heartbeat event is emitted per year to exercise the event
+placeholder ``tick`` heartbeat event is emitted per tick to exercise the event
 stream and the RNG-resume path until real systems land.
 """
 
@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import random
 from typing import Callable, List, Tuple
+
+from . import TICKS_PER_YEAR
 
 from .characters import aging_births_deaths as _aging_births_deaths  # phase 1
 from .chronicle import finalize_event
@@ -66,10 +68,10 @@ PIPELINE: Tuple[Tuple[str, System], ...] = (
 
 
 def run_tick(world: World) -> List[Event]:
-    """Advance the world by exactly one year and return the events emitted.
+    """Advance the world by exactly one tick (one month) and return its events.
 
     Runs every phase in order (appending each system's events as it goes), emits
-    the placeholder heartbeat, then increments the year. The heartbeat draws from
+    the placeholder heartbeat, then increments the tick. The heartbeat draws from
     the RNG so the resume path is genuinely exercised.
 
     Systems emit *structured* events (type, subjects, location, payload); the
@@ -92,19 +94,24 @@ def run_tick(world: World) -> List[Event]:
     # systems emit real events.
     heartbeat = world.new_event(
         type=HEARTBEAT_EVENT_TYPE,
-        payload={"year": world.current_year, "roll": rng.getrandbits(32)},
+        payload={"year": world.current_year, "month": world.month, "roll": rng.getrandbits(32)},
     )
     finalize_event(world, heartbeat)
     world.append_event(heartbeat)
     emitted.append(heartbeat)
 
-    world.current_year += 1
+    world.tick += 1
     return emitted
 
 
 def run_ticks(world: World, n: int) -> List[Event]:
-    """Advance the world by ``n`` years, returning all events emitted across them."""
+    """Advance the world by ``n`` ticks (months), returning all events emitted."""
     emitted: List[Event] = []
     for _ in range(n):
         emitted.extend(run_tick(world))
     return emitted
+
+
+def run_years(world: World, years: int) -> List[Event]:
+    """Advance the world by ``years`` whole years (``years * TICKS_PER_YEAR`` ticks)."""
+    return run_ticks(world, years * TICKS_PER_YEAR)

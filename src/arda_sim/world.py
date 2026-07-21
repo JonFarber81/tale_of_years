@@ -16,9 +16,32 @@ from . import (
     DEFAULT_SCENARIO_ID,
     DEFAULT_SCENARIO_VERSION,
     START_YEAR,
+    TICKS_PER_YEAR,
 )
 from .entities import Entity, EntityStatus, Event
 from .rng import make_rng
+
+# The Shire-calendar month names, one per tick within a year — display flavour for
+# the finer-grained clock (12 ticks/year). Purely cosmetic; the sim never reads it.
+MONTH_NAMES = (
+    "Afteryule", "Solmath", "Rethe", "Astron", "Thrimidge", "Forelithe",
+    "Afterlithe", "Wedmath", "Halimath", "Winterfilth", "Blotmath", "Foreyule",
+)
+
+
+def year_of_tick(tick: int) -> int:
+    """The calendar year an absolute tick falls in (TA)."""
+    return START_YEAR + tick // TICKS_PER_YEAR
+
+
+def month_of_tick(tick: int) -> int:
+    """The 1-based month (1..TICKS_PER_YEAR) an absolute tick falls in."""
+    return tick % TICKS_PER_YEAR + 1
+
+
+def format_tick(tick: int) -> str:
+    """A human date for a tick, e.g. ``"TA 2965, Afteryule"``."""
+    return f"TA {year_of_tick(tick)}, {MONTH_NAMES[tick % TICKS_PER_YEAR]}"
 
 
 @dataclass
@@ -35,16 +58,32 @@ class RunConfig:
 
 @dataclass
 class World:
-    """Authoritative run state. Plain, id-keyed, and directly serializable."""
+    """Authoritative run state. Plain, id-keyed, and directly serializable.
+
+    ``tick`` is the authoritative clock — an absolute count of monthly ticks since
+    the run's start (0 at ``START_YEAR``'s first month). The calendar year and
+    month are *derived* from it (``current_year`` / ``month``), so nothing stores a
+    year independently of the tick.
+    """
 
     config: RunConfig
-    current_year: int = START_YEAR
+    tick: int = 0
     id_counter: int = 1
     entities: Dict[int, Entity] = field(default_factory=dict)
     events: List[Event] = field(default_factory=list)
     # The seeded RNG is a live object, not persisted as-is; its getstate() is
     # what serializes. Excluded from equality so two worlds compare on state.
     rng: random.Random = field(default_factory=lambda: random.Random(0), compare=False)
+
+    @property
+    def current_year(self) -> int:
+        """The calendar year (TA) the current tick falls in."""
+        return year_of_tick(self.tick)
+
+    @property
+    def month(self) -> int:
+        """The 1-based month (1..TICKS_PER_YEAR) the current tick falls in."""
+        return month_of_tick(self.tick)
 
     @classmethod
     def new_run(

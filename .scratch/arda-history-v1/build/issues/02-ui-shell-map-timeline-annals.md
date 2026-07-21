@@ -2,6 +2,8 @@
 
 **What to build:** The PySide6/Qt desktop shell that lets a viewer watch the skeleton sim run on the v7 map. The v7 image is the canvas with pan/zoom; a timeline toolbar gives play / pause / step-a-year / speed / scrub; an annals dock shows the event stream as it arrives; an inspection dock exists (stub content for now). The sim runs on a background thread and delivers a snapshot + events per year, cached so scrubbing restores a stored snapshot instantly rather than re-simulating.
 
+> **Update (ADR-0003):** a tick is now a **month**. Step advances one tick; the scrub slider and the snapshot cache key on the absolute **tick**, not the year; the date label shows year + month. The annals stay year-grained (events keep a `year` stamp), so a mid-year scrub shows that whole year's annals while the map reflects the exact month.
+
 **Blocked by:** 01
 
 **Status:** ready-for-agent

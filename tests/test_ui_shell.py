@@ -45,11 +45,12 @@ if not _qt_platform_usable():
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from arda_sim import START_YEAR  # noqa: E402
+from arda_sim import START_YEAR, TICKS_PER_YEAR  # noqa: E402
 from arda_sim.entities import Event  # noqa: E402
 from arda_sim.snapshot import Snapshot  # noqa: E402
 from arda_sim.ui.annals_model import AnnalsModel, render_event  # noqa: E402
 from arda_sim.ui.app import build_window  # noqa: E402
+from arda_sim.world import format_tick  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -106,15 +107,15 @@ def test_window_builds_and_starts_at_seed_year(qapp):
         window.close()
 
 
-def test_year_advance_updates_label_and_annals(qapp):
+def test_tick_advance_updates_label_and_annals(qapp):
     window = build_window("fellowship", seed_characters=False)  # heartbeat-only
     try:
         # Drive the worker's logic directly (synchronously) rather than through
         # the thread, so the smoke test is deterministic and display-free.
-        snapshot, events = window._playback.advance_year()
+        snapshot, events = window._playback.advance()
         window._on_frontier_changed(window._playback.frontier)
-        window._on_year_advanced(snapshot, events)
-        assert window._year_label.text() == f"TA {START_YEAR}"
+        window._on_tick_advanced(snapshot, events)
+        assert window._year_label.text() == format_tick(0)  # "TA 2965, Afteryule"
         # The lone heartbeat is unimportant, so the important-only feed hides it,
         # but the model did receive it — "show all" reveals it.
         assert window._annals_model.raw_count() == 1
@@ -122,7 +123,7 @@ def test_year_advance_updates_label_and_annals(qapp):
         window._annals_model.show_all()
         assert window._annals_model.rowCount() == 1
         assert window._scrub.isEnabled()
-        assert window._scrub.maximum() == START_YEAR
+        assert window._scrub.maximum() == 0  # frontier is tick 0
     finally:
         window.close()
 
@@ -131,8 +132,8 @@ def test_worker_thread_advances_via_real_signals(qapp):
     from PySide6.QtCore import QEventLoop, QTimer
 
     window = build_window("fellowship")
-    years = []
-    window._worker.yearAdvanced.connect(lambda snap, _evs: years.append(snap.year))
+    ticks = []
+    window._worker.tickAdvanced.connect(lambda snap, _evs: ticks.append(snap.tick))
     try:
         window.speedChanged.emit(60.0)  # fast
         window.playRequested.emit()
@@ -141,8 +142,8 @@ def test_worker_thread_advances_via_real_signals(qapp):
         loop.exec()
     finally:
         window.close()
-    assert len(years) >= 3  # the background thread genuinely advanced
-    assert years == sorted(years)  # in order, no gaps backwards
+    assert len(ticks) >= 3  # the background thread genuinely advanced
+    assert ticks == sorted(ticks)  # in order, no gaps backwards
 
 
 def test_show_all_toolbar_toggle_switches_the_feed(qapp):
@@ -166,9 +167,9 @@ def test_seeded_window_streams_visible_prose_into_the_annals(qapp):
     # important-only feed with real chronicle prose (not just heartbeats).
     window = build_window("fellowship")  # roster seeded by default
     try:
-        for snap, evs in window._playback.fast_forward_to(START_YEAR + 20):
+        for snap, evs in window._playback.fast_forward_to(20 * TICKS_PER_YEAR):
             window._on_frontier_changed(window._playback.frontier)
-            window._on_year_advanced(snap, evs)
+            window._on_tick_advanced(snap, evs)
         assert window._annals_model.rowCount() > 0  # important events are shown
         first = window._annals_model.data(window._annals_model.index(0))
         assert first.startswith("TA ") and "[" not in first  # rendered prose
@@ -187,7 +188,7 @@ def test_above_threshold_located_events_fire_a_map_pulse(qapp):
             _event(START_YEAR, importance=0, location_id=site.id),   # too dull
             _event(START_YEAR, importance=90, location_id=None),     # no place
         ]
-        window._on_year_advanced(Snapshot(year=START_YEAR), events)
+        window._on_tick_advanced(Snapshot(tick=0, year=START_YEAR), events)
         assert pulsed == [(site.col, site.row)]
     finally:
         window.close()
@@ -197,16 +198,21 @@ def test_scrub_restore_caps_annals_without_new_events(qapp):
     window = build_window("fellowship", seed_characters=False)  # heartbeat-only
     try:
         window._annals_model.show_all()  # heartbeats are unimportant; test the cap
-        # simulate a few years
-        for snap, evs in window._playback.fast_forward_to(START_YEAR + 5):
+        # Simulate five whole years — 5 * TICKS_PER_YEAR monthly heartbeats. The
+        # annals are year-grained, so the cap works at year boundaries even though
+        # the scrub itself is month-grained.
+        for snap, evs in window._playback.fast_forward_to(5 * TICKS_PER_YEAR - 1):
             window._on_frontier_changed(window._playback.frontier)
-            window._on_year_advanced(snap, evs)
-        assert window._annals_model.rowCount() == 6
+            window._on_tick_advanced(snap, evs)
+        assert window._annals_model.rowCount() == 5 * TICKS_PER_YEAR  # every month shown
 
-        # scrub back to START_YEAR+2: restore snapshot, cap annals, no new events
-        snapshot = window._playback.restore(START_YEAR + 2)
-        window._on_year_advanced(snapshot, [])
-        assert window._year_label.text() == f"TA {START_YEAR + 2}"
-        assert window._annals_model.rowCount() == 3  # years +0.. +2
+        # Scrub back to the first month of the third year (START_YEAR + 2): restore
+        # its snapshot, cap the annals at that year, emit no new events.
+        third_year_tick = 2 * TICKS_PER_YEAR
+        snapshot = window._playback.restore(third_year_tick)
+        window._on_tick_advanced(snapshot, [])
+        assert window._year_label.text() == format_tick(third_year_tick)
+        # Capped at year START_YEAR+2 -> years +0, +1, +2 remain (3 years of months).
+        assert window._annals_model.rowCount() == 3 * TICKS_PER_YEAR
     finally:
         window.close()

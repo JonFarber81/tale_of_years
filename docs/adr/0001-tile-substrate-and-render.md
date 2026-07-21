@@ -5,6 +5,11 @@ Status: **Accepted** (2026-07-20)
 Supersedes the spatial-substrate decision in ticket `01-spatial-substrate` and the
 "v7 image as canvas" rendering decision — see **Consequences**.
 
+**Amended by ADR-0003 (2026-07-20):** the tick is now a **month**, not a year, so
+"yearly tick" below reads "monthly tick" and movement is a per-tick budget derived
+from miles/year ÷ `TICKS_PER_YEAR`. The substrate and rendering decisions are
+otherwise unchanged.
+
 ## Context
 
 The v1 design (ticket 01, spec §"Spatial substrate") chose a **region-polygon +

@@ -14,8 +14,9 @@ import platform
 from dataclasses import asdict
 from typing import Any, Dict
 
-from . import RNG_FAMILY, SCHEMA_VERSION, __version__
+from . import RNG_FAMILY, SCHEMA_VERSION, START_YEAR, TICKS_PER_YEAR, __version__
 from . import characters as _characters  # noqa: F401  (registers the Character type)
+from . import factions as _factions  # noqa: F401  (registers the Faction type)
 from .entities import Event, entity_from_dict
 from .rng import state_from_jsonable, state_to_jsonable
 from .world import RunConfig, World
@@ -28,10 +29,25 @@ def canonical_json(obj: Any) -> str:
     """
     return json.dumps(obj, sort_keys=True, ensure_ascii=False)
 
+def _migrate_v1_to_v2(data: Dict[str, Any]) -> Dict[str, Any]:
+    """v1 stored a yearly ``current_year``; v2 stores a monthly ``tick`` clock.
+
+    A v1 save sat at the first month of its year, so ``tick = (year - start) *
+    TICKS_PER_YEAR``. Events keep their year stamp unchanged.
+    """
+    state = data["state"]
+    year = state.pop("current_year", START_YEAR)
+    state["tick"] = (year - START_YEAR) * TICKS_PER_YEAR
+    data["provenance"]["schema_version"] = 2
+    return data
+
+
 # Ordered chain of migration functions, indexed by the schema version they
-# upgrade *from*. Empty at v1; grows as the schema evolves so old saves keep
-# loading. Each entry: (from_version) -> callable(save_dict) -> save_dict.
-_MIGRATIONS: Dict[int, Any] = {}
+# upgrade *from*. Grows as the schema evolves so old saves keep loading. Each
+# entry: (from_version) -> callable(save_dict) -> save_dict.
+_MIGRATIONS: Dict[int, Any] = {
+    1: _migrate_v1_to_v2,
+}
 
 
 def _provenance(world: World) -> Dict[str, Any]:
@@ -58,7 +74,7 @@ def to_dict(world: World) -> Dict[str, Any]:
     return {
         "provenance": _provenance(world),
         "state": {
-            "current_year": world.current_year,
+            "tick": world.tick,
             "id_counter": world.id_counter,
             "entities": [asdict(e) for e in _sorted_entities(world)],
             "events": [asdict(ev) for ev in world.events],
@@ -87,7 +103,7 @@ def from_dict(data: Dict[str, Any]) -> World:
     )
     world = World(
         config=config,
-        current_year=state["current_year"],
+        tick=state["tick"],
         id_counter=state["id_counter"],
     )
     for e in state["entities"]:

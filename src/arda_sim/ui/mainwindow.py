@@ -1,9 +1,10 @@
 """The main window: map canvas, timeline toolbar, annals dock, inspection dock.
 
-Owns the background sim thread and translates its ``(year, snapshot, events)``
+Owns the background sim thread and translates its ``(snapshot, events)`` per-tick
 stream into UI updates. Playback commands go to the worker as queued signals
-(thread-safe); snapshots come back and drive the year label, the scrub slider,
-and the annals cap. The window renders only from snapshots — never the live world.
+(thread-safe); snapshots come back and drive the date label (year + month), the
+scrub slider (in absolute ticks), and the annals cap. The window renders only
+from snapshots — never the live world.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from ..factions import Faction
 from ..playback import Playback
 from ..snapshot import Snapshot
 from ..tiles import UNOWNED, TileGrid
+from ..world import format_tick
 from .annals_model import AnnalsModel
 from .map_view import MapView
 from .sim_worker import SimWorker
@@ -65,9 +67,10 @@ class MainWindow(QMainWindow):
         self._events: List[Event] = []
         self._display_year = START_YEAR - 1
         self._syncing_slider = False
-        # The frontier as last reported by the worker (never read cross-thread
-        # from the worker-owned Playback). Nothing simulated yet.
-        self._frontier = START_YEAR - 1
+        # The frontier as last reported by the worker, in absolute ticks (never
+        # read cross-thread from the worker-owned Playback). Nothing simulated yet,
+        # so it sits one tick before the first tick (tick 0).
+        self._frontier = -1
         self.setWindowTitle("arda_history — the Third Age unfolds")
 
         self._map = MapView(grid, self)
@@ -104,16 +107,18 @@ class MainWindow(QMainWindow):
         self._show_all_action.setCheckable(True)
 
         bar.addSeparator()
+        # The scrub slider works in absolute ticks (months). It starts collapsed
+        # at tick 0 and grows its maximum as the frontier advances.
         self._scrub = QSlider(Qt.Horizontal, self)
-        self._scrub.setRange(START_YEAR, START_YEAR)
+        self._scrub.setRange(0, 0)
         self._scrub.setEnabled(False)  # nothing simulated yet
         self._scrub.valueChanged.connect(self._on_scrub)
         bar.addWidget(self._scrub)
 
         self._year_label = QLabel(f"TA {START_YEAR}", self)
-        self._year_label.setMinimumWidth(110)
+        self._year_label.setMinimumWidth(180)
         self._year_label.setAlignment(Qt.AlignCenter)
-        # Prominent: the current year is the viewer's anchor in time.
+        # Prominent: the current date is the viewer's anchor in time.
         font = self._year_label.font()
         font.setPointSize(font.pointSize() + 4)
         font.setBold(True)
@@ -143,7 +148,7 @@ class MainWindow(QMainWindow):
 
         self._thread.started.connect(self._worker.setup)
         self._thread.finished.connect(self._worker.deleteLater)
-        self._worker.yearAdvanced.connect(self._on_year_advanced)
+        self._worker.tickAdvanced.connect(self._on_tick_advanced)
         self._worker.frontierChanged.connect(self._on_frontier_changed)
 
         self.playRequested.connect(self._worker.play)
@@ -156,18 +161,20 @@ class MainWindow(QMainWindow):
 
     # -- worker -> UI ----------------------------------------------------
 
-    def _on_year_advanced(self, snapshot: Snapshot, events: List[Event]) -> None:
+    def _on_tick_advanced(self, snapshot: Snapshot, events: List[Event]) -> None:
         self._latest_snapshot = snapshot
         self._display_year = snapshot.year
         if events:  # a live advance; a scrub-restore carries none
             self._annals_model.append_events(events)
             self._events.extend(events)
             self._fire_pulses(events)
-        year = snapshot.year
-        self._year_label.setText(f"TA {year}")
-        # Cap the annals when scrubbed behind the frontier; live years are >= it.
-        self._annals_model.set_cap_year(None if year >= self._frontier else year)
-        self._sync_slider(year)
+        self._year_label.setText(format_tick(snapshot.tick))
+        # Cap the annals (which are year-grained) when scrubbed behind the
+        # frontier; live ticks are >= it. Restoring an earlier tick shows that
+        # tick's whole year — finer scrubbing lives in the map, not the annals.
+        behind = snapshot.tick < self._frontier
+        self._annals_model.set_cap_year(snapshot.year if behind else None)
+        self._sync_slider(snapshot.tick)
 
     def _fire_pulses(self, events: List[Event]) -> None:
         """Flash an on-map pulse for each above-threshold, located event."""
@@ -184,6 +191,7 @@ class MainWindow(QMainWindow):
             self._annals_model.important_only()
 
     def _on_frontier_changed(self, frontier: int) -> None:
+        """``frontier`` is the newest simulated tick."""
         self._frontier = frontier
         if not self._scrub.isEnabled():
             self._scrub.setEnabled(True)
@@ -258,16 +266,16 @@ class MainWindow(QMainWindow):
 
     # -- UI -> worker ----------------------------------------------------
 
-    def _on_scrub(self, year: int) -> None:
+    def _on_scrub(self, tick: int) -> None:
         if self._syncing_slider:  # programmatic move, not a user drag
             return
-        self.seekRequested.emit(year)
+        self.seekRequested.emit(tick)
 
-    def _sync_slider(self, year: int) -> None:
-        """Move the slider to ``year`` without it looking like a user scrub."""
+    def _sync_slider(self, tick: int) -> None:
+        """Move the slider to ``tick`` without it looking like a user scrub."""
         self._syncing_slider = True
         try:
-            self._scrub.setValue(year)
+            self._scrub.setValue(tick)
         finally:
             self._syncing_slider = False
 

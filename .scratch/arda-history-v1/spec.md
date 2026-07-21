@@ -12,17 +12,17 @@ Today no such thing exists: reading the Appendices is static, strategy games are
 
 ## Solution
 
-A watch-only desktop application (Python) that runs a deterministic, seeded simulation of NW Middle-earth starting at **TA 2965**, advancing **one year per tick**, open-ended, rendered on the pictorial **v7 Middle-earth map**. The viewer watches history stream past — an annals feed of dated events, coloured territory shifting between factions, armies marching, the Ring moving — and can pause, change speed, step a year, scrub the timeline, and click any entity (character, faction, settlement, army, the Ring) to inspect its current state and full history. Dynamics are **emergent but weighted toward canon** by a single tunable **canonicity** knob (0–1): at 0 history is free; at 1 it leans hard toward the books. A human-shareable **string seed** plus the fixed scenario and canonicity setting deterministically reproduces any run.
+A watch-only desktop application (Python) that runs a deterministic, seeded simulation of NW Middle-earth starting at **TA 2965**, advancing **one month per tick** (`TICKS_PER_YEAR = 12`), open-ended, rendered on the pictorial **v7 Middle-earth map**. The viewer watches history stream past — an annals feed of dated events, coloured territory shifting between factions, armies marching, the Ring moving — and can pause, change speed, step a tick, scrub the timeline, and click any entity (character, faction, settlement, army, the Ring) to inspect its current state and full history. Dynamics are **emergent but weighted toward canon** by a single tunable **canonicity** knob (0–1): at 0 history is free; at 1 it leans hard toward the books. A human-shareable **string seed** plus the fixed scenario and canonicity setting deterministically reproduces any run.
 
 **This spec produces the v1 design only.** It is the blueprint handed to `/to-tickets` → `/implement`; it contains no game code.
 
 ## User Stories
 
 ### Watching & playback
-1. As a viewer, I want to watch history advance one year per tick automatically, so that I can see an alternate Third Age unfold without acting.
+1. As a viewer, I want to watch history advance one month per tick automatically, so that I can see an alternate Third Age unfold without acting.
 2. As a viewer, I want to pause and resume the simulation, so that I can stop on an interesting moment.
 3. As a viewer, I want to change the playback speed (ticks per second), so that I can skim quiet centuries and slow down for dramatic years.
-4. As a viewer, I want to step forward exactly one year, so that I can examine a pivotal turn carefully.
+4. As a viewer, I want to step forward exactly one tick (month), so that I can examine a pivotal turn carefully.
 5. As a viewer, I want to scrub/seek the timeline to any already-simulated year, so that I can jump back to when a war started.
 6. As a viewer, I want scrubbing to be instant (restore a stored snapshot, not re-simulate), so that navigating history feels immediate.
 7. As a viewer, I want to see the current in-world year (starting TA 2965) prominently, so that I always know when I am.
@@ -132,7 +132,7 @@ A watch-only desktop application (Python) that runs a deterministic, seeded simu
 ## Implementation Decisions
 
 ### Architecture & the primary seam
-- **Framework-agnostic seeded simulation core that emits an immutable snapshot + event stream per year; the PySide6/Qt UI is a pure consumer.** This is the single, highest testing seam: the entire sim is exercised headless (no UI) by driving ticks and observing world state, the event log, and determinism. *(Ticket 04, 02)*
+- **Framework-agnostic seeded simulation core that emits an immutable snapshot + event stream per tick (month); the PySide6/Qt UI is a pure consumer.** This is the single, highest testing seam: the entire sim is exercised headless (no UI) by driving ticks and observing world state, the event log, and determinism. *(Ticket 04, 02)*
 - **Language: Python. Watch-only** — no player control in v1. *(map Notes)*
 - **UI stack: PySide6/Qt.** Map is a `QGraphicsView`/`QGraphicsScene` (v7 image as a pixmap item; region polygons + location/army/Ring items on top, resolved by built-in item hit-testing). Panels are native Qt docks; the annals feed is a model-backed virtualized `QListView`; the timeline is a `QToolBar` (play/pause/step) + `QSlider` (scrub) + speed control. The sim runs on a `QThread` and delivers `(snapshot, events)` to the UI via signals. Backup stack: pygame-ce + pygame_gui. *(Ticket 04)*
 - **macOS packaging via Briefcase**; offline, no network dependency. *(Ticket 04)*
@@ -144,16 +144,16 @@ A watch-only desktop application (Python) that runs a deterministic, seeded simu
 - **Entity base fields:** `id`, `kind`, `name`, `created_year`, and a **`status` field** — `active` plus a tombstone enum recording *how* an entity left play: `dead`, `departed` (Elves sailing West), `destroyed` (the Ring at Mount Doom; the Nazgûl unmade with it). Tombstoned entities are never deleted, so references stay resolvable. *(Ticket 02, corrected in coherence review; consumed by 05/09/10)*
 
 ### The tick — a fixed ordered system pipeline
-- **A year advances by running a fixed, explicit list of systems, each `system(world, rng) -> events`**, mutating authoritative state and appending events. Deterministic order + a single seeded RNG threaded through every system is the reproducibility contract. Phase order: *(Ticket 02)*
+- **A tick is one month (`TICKS_PER_YEAR = 12` ticks per year); it advances by running a fixed, explicit list of systems, each `system(world, rng) -> events`**, mutating authoritative state and appending events. Deterministic order + a single seeded RNG threaded through every system is the reproducibility contract. Per-year lifecycle rates (death/fertility/weariness) are applied against the monthly scale so behaviour over a span of years is unchanged. Phase order: *(Ticket 02; monthly clock added post-implementation — see ADR-0003)*
   1. **Aging / births / deaths** *(05)* — ages advance; natural & disease deaths; births. (Violent death is phase 5's.)
   2. **Faction decisions** *(06)* — factions score a menu of intents (muster / attack region / fortify / seek pact / build) via weighted utility + RNG jitter; canonicity weights the scores.
   3. **Diplomacy** *(08)* — disposition updates; treaties, marriages, betrayals, provider-pacts; war declarations/terminations flip stance flags.
-  4. **Movement** *(01/07/09)* — armies and the Ring advance node→node along routes by a miles/year budget.
+  4. **Movement** *(01/07/09)* — armies and the Ring advance tile→tile along routes by a per-tick budget (derived from a miles/year rate ÷ `TICKS_PER_YEAR`).
   5. **War** *(07)* — battles & sieges where forces meet; casualties incl. named death; conquest; razing.
   6. **Construction / economy** *(08)* — settlements founded/grown/razed-rebuilt; economy accrual.
   7. **Sauron rise + canonical pressure** *(09/10)* — recompute `sauron_strength` and the Ring's `pull`; apply canon-pressure weighting for the *next* tick. This phase never musters, moves, or fights.
-  8. **Salience + bookkeeping** *(11/12)* — score event importance; increment `current_year`; autosave check.
-- **Phase-flow contract (coherence-critical):** the static canonicity knob is available at every phase; the *dynamic* values computed in phase 7 (`sauron_strength`, `pull`-response weighting) are consumed by the **next** tick's phases 2–4 (a deliberate, invisible one-year lag). *(Tickets 02/10)*
+  8. **Salience + bookkeeping** *(11/12)* — score event importance; increment the `tick` clock (year/month are derived from it); autosave check.
+- **Phase-flow contract (coherence-critical):** the static canonicity knob is available at every phase; the *dynamic* values computed in phase 7 (`sauron_strength`, `pull`-response weighting) are consumed by the **next** tick's phases 2–4 (a deliberate, invisible one-tick / one-month lag). *(Tickets 02/10)*
 
 ### Events — state-authoritative, append-only
 - **World state is the source of truth; systems mutate it, then emit immutable dated `Event` records.** Events never drive state (not event-sourced). Save = state snapshot + event log; load = direct rehydrate, not replay. *(Ticket 02)*
@@ -226,7 +226,7 @@ A watch-only desktop application (Python) that runs a deterministic, seeded simu
 - **Live feed:** a virtualized model-backed `QListView` "Annals" dock fed the per-tick events, filtered on the four indices with an importance threshold; default **important-only** with one-click "show all"; above-threshold events also fire a transient on-map pulse at their `location_id`. *(Ticket 11)*
 - **Map labels:** site names (settlements/fortresses) and area names (region labels) render as **engine-drawn text over the tiles** — zoom-aware LOD (areas out, sites in), toggle-able/filterable, haloed for legibility. Data-driven from each site's/region's `name`, never baked into terrain, so they update as places are renamed/razed/founded. *(Ticket 11; see [ADR-0001](../../docs/adr/0001-tile-substrate-and-render.md))*
 - **Inspection:** a persistent dock driven by graphics hit-testing; shows the entity's current fields + its **by-subject event timeline**; cross-references are clickable ids that resolve even for tombstoned entities. *(Ticket 11)*
-- **Playback via a snapshot-per-year cache:** the sim runs forward-only, emitting `(snapshot, events)` per year; **scrub/seek restores snapshot[T] — never replays**; step = ±1 cached year; you may only scrub within simulated years (seeking past the frontier fast-forwards the sim). Keyframe-snapshots + bounded replay is the documented fallback if memory at scale bites. *(Ticket 11)*
+- **Playback via a snapshot-per-tick cache:** the sim runs forward-only, emitting `(snapshot, events)` per tick (month); **scrub/seek restores snapshot[T] — never replays** (T is an absolute tick); step = ±1 cached tick; you may only scrub within simulated ticks (seeking past the frontier fast-forwards the sim). The date label shows year + month; the annals stay year-grained. Keyframe-snapshots + bounded replay is the documented fallback if memory at scale bites (more pressing at 12× the snapshot rate — see ADR-0003). *(Ticket 11)*
 - **Salience:** a deterministic **absolute `importance` (0–100)** scored at emission = `type base-weight × subject prominence × scale × canon-bump`, immutable in the log; the UI may optionally normalize to a top-N-per-year *view*. *(Ticket 11)*
 - **Prose chronicle:** per-event-type **templates + a seeded phrase-grammar** rendered into `Event.text` — deterministic, offline, no dependencies. The `text` field is the swappable seam for a future LLM backend (deferred, out of scope). *(Ticket 11)*
 
@@ -261,6 +261,6 @@ A watch-only desktop application (Python) that runs a deterministic, seeded simu
 
 - **Reference assets:** `references/Middle Earth v7.jpg` (the canvas; has the miles scale bar for calibration), `references/Eriador - TOR Hex Map.webp` (higher-detail terrain reference). Geography is fixed.
 - **Content-authoring is a build asset, not a design decision** — a single authoring pass produces: the region/route/location dataset in v7 pixel coordinates (with `seat_location_id` and `base_yield` per region); per-faction seed values (aggression/posture/disposition baselines); provider `output` → combat-modifier profiles; battle/siege tuning tables; the treaty taxonomy; Ring corruption/pull coefficients; the `canon_baseline(year)` curve; and per-event-type prose templates + phrase-grammar. `/to-tickets` should split this authoring from the engine work.
-- **Performance at scale** is the main open risk: an open-ended yearly sim over centuries across the whole map, plus event-log and per-year snapshot growth. A research/prototype spike is expected to decide when 12's storage seam swaps JSON→SQLite and whether 11 falls back to keyframe+replay.
+- **Performance at scale** is the main open risk, sharpened by the monthly clock (12× the ticks, event-log growth, and snapshots of a yearly sim — see ADR-0003): an open-ended sim over centuries across the whole map. A research/prototype spike is expected to decide when 12's storage seam swaps JSON→SQLite and whether 11 falls back to keyframe+replay.
 - **Full decision provenance** lives in the wayfinder map at `.scratch/arda-history-v1/map.md` and the twelve resolved tickets in `.scratch/arda-history-v1/issues/`; each Implementation Decision above cites the ticket holding its rationale and rejected alternatives.
 - **Coherence-reviewed:** cross-ticket seams (phase order, shared fields, event catalog, tombstone status, faction/character prominence) were reconciled before this spec; the Nazgûl phase-flow, their Ring-destruction coupling, and the tombstone `status` enum are the corrections folded in.

@@ -24,21 +24,26 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional
 
-from . import START_YEAR
+from . import START_YEAR, TICKS_PER_YEAR
 from .entities import Entity, EntityStatus, Event, register_entity_type
 from .scenarios import load_scenario
 from .world import World
 
-# Basis points: probabilities are integers out of this, so every life-or-death
-# comparison is ``rng.randrange(BP_SCALE) < probability_bp`` — pure integer math.
+# Basis points: the death/fertility tables below are annual probabilities out of
+# this scale. The tick is a month, so each per-tick roll uses the wider
+# ``BP_SCALE * TICKS_PER_YEAR`` denominator (:data:`_TICK_BP_SCALE`) — twelve
+# monthly rolls at 1/12 the chance reproduce the same annual behaviour, all in
+# integer math (no float in an outcome-deciding comparison).
 BP_SCALE = 10_000
+_TICK_BP_SCALE = BP_SCALE * TICKS_PER_YEAR
 
-# Elf weariness: each year an Elf accrues a small increment; once accrued
-# weariness crosses the threshold they sail West. Tuned so departures unfold over
-# centuries, not decades — the fading Third Age, not an exodus.
-_WEARINESS_THRESHOLD = 6_000
+# Elf weariness: each tick an Elf accrues a small increment; once accrued
+# weariness crosses the threshold they sail West. The threshold scales with
+# TICKS_PER_YEAR so the per-tick increments still add up over the same *span of
+# years* — departures unfold over centuries, not decades, at any tick rate.
+_WEARINESS_THRESHOLD = 6_000 * TICKS_PER_YEAR
 _WEARINESS_BASE = 8
-_WEARINESS_JITTER = 25  # exclusive upper bound of the per-year random add
+_WEARINESS_JITTER = 25  # exclusive upper bound of the per-tick random add
 
 _TRAIT_KEYS = ("leadership", "martial", "ambition", "loyalty", "wisdom", "guile")
 _DEFAULT_TRAIT = 50
@@ -286,7 +291,7 @@ def aging_births_deaths(world: World, rng: random.Random) -> List[Event]:
             events.extend(_maybe_depart(world, rng, char))
             continue
         bp = annual_death_bp(race, char.age(year))
-        if bp > 0 and rng.randrange(BP_SCALE) < bp:
+        if bp > 0 and rng.randrange(_TICK_BP_SCALE) < bp:
             events.append(_kill(world, char, cause="natural"))
 
     # Pass 2 — births on established couples (both partners still alive after the
@@ -353,7 +358,7 @@ def _maybe_birth(
         return None
     if father.age(world.current_year) < RACE_CONFIG[Race(father.race)].maturity_age:
         return None
-    if cfg.fertility_bp <= 0 or rng.randrange(BP_SCALE) >= cfg.fertility_bp:
+    if cfg.fertility_bp <= 0 or rng.randrange(_TICK_BP_SCALE) >= cfg.fertility_bp:
         return None
 
     child = _bear_child(world, rng, mother, father)

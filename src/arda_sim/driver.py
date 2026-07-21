@@ -11,14 +11,18 @@ from typing import List, Optional
 
 from .entities import Event
 from .persistence import canonical_json, load, save
-from .pipeline import run_ticks
+from .pipeline import run_years
 from .world import World
 
 
 def run(seed: str, years: int, canonicity: float = 1.0) -> World:
-    """Build a fresh run from ``seed`` and advance it ``years`` ticks."""
+    """Build a fresh run from ``seed`` and advance it ``years`` whole years.
+
+    A year is ``TICKS_PER_YEAR`` monthly ticks, so this advances the tick clock by
+    ``years * TICKS_PER_YEAR``.
+    """
     world = World.new_run(seed, canonicity=canonicity)
-    run_ticks(world, years)
+    run_years(world, years)
     return world
 
 
@@ -43,7 +47,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.load:
         world = load(args.load)
-        run_ticks(world, args.years)
+        run_years(world, args.years)
     else:
         world = run(args.seed, args.years, canonicity=args.canonicity)
 

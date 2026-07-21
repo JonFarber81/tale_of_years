@@ -45,10 +45,11 @@ def test_pipeline_has_eight_phases_in_fixed_order():
     ]
 
 
-def test_tick_increments_year_and_emits_placeholder():
+def test_tick_advances_the_clock_by_one_month_and_emits_placeholder():
     world = World.new_run("seed")
     events = run_tick(world)
-    assert world.current_year == START_YEAR + 1
+    assert world.tick == 1  # one monthly tick simulated
+    assert world.current_year == START_YEAR and world.month == 2
     assert len(events) == 1
     (heartbeat,) = events
     assert isinstance(heartbeat, Event)
@@ -57,12 +58,16 @@ def test_tick_increments_year_and_emits_placeholder():
     assert world.events == events
 
 
-def test_run_ticks_produces_one_event_per_year():
+def test_run_ticks_produces_one_event_per_tick_and_rolls_the_year():
+    from arda_sim import TICKS_PER_YEAR
+
     world = World.new_run("seed")
-    events = run_ticks(world, 10)
-    assert len(events) == 10
-    assert [e.year for e in events] == list(range(START_YEAR, START_YEAR + 10))
-    assert world.current_year == START_YEAR + 10
+    events = run_ticks(world, TICKS_PER_YEAR + 3)  # a year and a quarter of months
+    assert len(events) == TICKS_PER_YEAR + 3
+    # the year rolls over once, on the TICKS_PER_YEAR-th tick
+    assert world.tick == TICKS_PER_YEAR + 3
+    assert world.current_year == START_YEAR + 1 and world.month == 4
+    assert events[0].year == START_YEAR and events[-1].year == START_YEAR + 1
 
 
 def test_all_events_have_resolvable_ids_and_years():
