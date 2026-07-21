@@ -36,6 +36,7 @@ from ..tiles import UNOWNED, TileGrid
 from ..world import format_tick
 from .annals_model import AnnalsModel, EventRole
 from .annals_style import AnnalsDelegate
+from .event_dossier import render_event_dossier
 from .map_view import MapView
 from .sim_worker import SimWorker
 
@@ -208,18 +209,43 @@ class MainWindow(QMainWindow):
     # -- annals -> map ---------------------------------------------------
 
     def _on_annals_event_clicked(self, index) -> None:
-        """An annals row click jumps the map to a placed event's site.
+        """An annals row click: the event dossier, plus a map jump if placed.
 
-        Space-only by decision (annals-ui spec): the timeline, scrub cap, and
-        filter are untouched. A year-header row or an unplaced event moves
-        nothing (the dossier half of the click is ticket 03).
+        One gesture, two payoffs (annals-ui spec): every event row pushes its
+        dossier into the Inspection dock; a placed event also pans the map to
+        its site. Space-only by decision — the timeline, scrub cap, and filter
+        are untouched. A year-header row does nothing.
         """
         event = self._annals_model.data(index, EventRole)
-        if event is None or event.location_id is None:
+        if event is None:
+            return
+        self._inspection_label.setText(self.describe_event(event))
+        if event.location_id is None:
             return
         site = self._grid.site_by_id(event.location_id)
         if site is not None:
             self._map.focus_tile(site.col, site.row)
+
+    def describe_event(self, event: Event) -> str:
+        """The event dossier for the inspection dock (annals-ui ticket 03)."""
+        return render_event_dossier(
+            event,
+            faction_name=self._faction_display_name,
+            site_name=lambda site_id: (
+                site.name
+                if site_id is not None
+                and (site := self._grid.site_by_id(site_id)) is not None
+                else None
+            ),
+            region_name=lambda rid: (
+                region.name if (region := self._grid.regions.get(rid)) else None
+            ),
+        )
+
+    def _faction_display_name(self, faction_id) -> str:
+        if faction_id is None:
+            return "an unknown power"
+        return self._faction_names.get(faction_id, f"faction {faction_id}")
 
     # -- map -> inspection ----------------------------------------------
 
