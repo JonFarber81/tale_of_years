@@ -27,6 +27,14 @@ from dataclasses import dataclass
 from typing import Callable, Dict, List, Mapping, Optional, Sequence
 
 from .characters import BIRTH_EVENT, DEATH_EVENT, DEPARTED_EVENT
+from .diplomacy import (
+    MARRIAGE_EVENT,
+    PROVIDER_PACT_EVENT,
+    TREATY_EVENT,
+    VASSALAGE_EVENT,
+    WAR_DECLARED_EVENT,
+    WAR_ENDED_EVENT,
+)
 from .entities import Event
 from .factions import FACTION_INTENT_EVENT
 from .succession import ABSORPTION_EVENT, LINE_FAILED_EVENT, SUCCESSION_EVENT
@@ -65,6 +73,15 @@ BASE_WEIGHT: Dict[str, int] = {
     # every year, so it stays below the important-only cutoff and out of the
     # default feed, surfacing only under "show all" and on faction inspection.
     FACTION_INTENT_EVENT: 6,
+    # Diplomacy (ticket 09): war is the era-shaping extreme; the peaceful bonds
+    # descend from a fealty sworn, through a dynastic marriage, to an ordinary
+    # treaty and the quiet deepening of an off-map pact.
+    WAR_DECLARED_EVENT: 70,
+    WAR_ENDED_EVENT: 65,
+    VASSALAGE_EVENT: 55,
+    MARRIAGE_EVENT: 45,
+    TREATY_EVENT: 40,
+    PROVIDER_PACT_EVENT: 35,
     _HEARTBEAT_EVENT: 0,  # the placeholder tick is never important
 }
 
@@ -292,6 +309,114 @@ def _render_absorption(ctx: _RenderContext, event: Event) -> str:
     return template.format(fallen=fallen, absorber=absorber)
 
 
+def _render_treaty(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    a = ctx.name(subjects[0]) if subjects else "a realm"
+    b = ctx.name(subjects[1]) if len(subjects) >= 2 else "another"
+    template = _pick(
+        (
+            "{a} and {b} bound themselves in a treaty of alliance.",
+            "A treaty of friendship was sealed between {a} and {b}.",
+            "{a} and {b} swore alliance.",
+        ),
+        event,
+        salt=6,
+    )
+    return template.format(a=a, b=b)
+
+
+def _render_marriage(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    bride_a = ctx.name(subjects[0]) if subjects else "one"
+    bride_b = ctx.name(subjects[1]) if len(subjects) >= 2 else "another"
+    payload = event.payload or {}
+    realm_a = ctx.name(payload.get("realm_a")) if payload.get("realm_a") else None
+    realm_b = ctx.name(payload.get("realm_b")) if payload.get("realm_b") else None
+    if realm_a and realm_b:
+        return f"{bride_a} of {realm_a} wed {bride_b} of {realm_b}, joining their houses."
+    return f"{bride_a} and {bride_b} were wed, joining their houses."
+
+
+def _render_vassalage(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    vassal = ctx.name(subjects[0]) if subjects else "a realm"
+    overlord = ctx.name(subjects[1]) if len(subjects) >= 2 else "a high king"
+    if (event.payload or {}).get("bond") == "broken":
+        template = _pick(
+            (
+                "{vassal} cast off the overlordship of {overlord}.",
+                "{vassal} broke free of {overlord} and stood alone again.",
+            ),
+            event,
+            salt=7,
+        )
+    else:
+        template = _pick(
+            (
+                "{vassal} swore fealty to {overlord}.",
+                "{vassal} bent the knee and took {overlord} for its overlord.",
+            ),
+            event,
+            salt=8,
+        )
+    return template.format(vassal=vassal, overlord=overlord)
+
+
+def _render_provider_pact(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    patron = ctx.name(subjects[0]) if subjects else "a power"
+    provider = ctx.name(subjects[1]) if len(subjects) >= 2 else "an outland people"
+    template = _pick(
+        (
+            "{patron} deepened its pact with the {provider}.",
+            "The {provider} pledged themselves more firmly to {patron}.",
+        ),
+        event,
+        salt=9,
+    )
+    return template.format(patron=patron, provider=provider)
+
+
+def _render_war_declared(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    a = ctx.name(subjects[0]) if subjects else "a realm"
+    b = ctx.name(subjects[1]) if len(subjects) >= 2 else "another"
+    if (event.payload or {}).get("betrayal"):
+        template = _pick(
+            (
+                "{a} broke faith and fell upon {b}.",
+                "In betrayal of their pact, {a} declared war upon {b}.",
+            ),
+            event,
+            salt=10,
+        )
+    else:
+        template = _pick(
+            (
+                "{a} declared war upon {b}.",
+                "War was proclaimed by {a} against {b}.",
+            ),
+            event,
+            salt=11,
+        )
+    return template.format(a=a, b=b)
+
+
+def _render_war_ended(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    a = ctx.name(subjects[0]) if subjects else "a realm"
+    b = ctx.name(subjects[1]) if len(subjects) >= 2 else "another"
+    template = _pick(
+        (
+            "{a} and {b} laid down their arms and made peace.",
+            "Peace was made between {a} and {b}.",
+        ),
+        event,
+        salt=12,
+    )
+    return template.format(a=a, b=b)
+
+
 # The per-type renderer registry. A type with no renderer yields no prose (the
 # feed shows a structured placeholder for it) — this is where later tickets
 # register their templates.
@@ -303,6 +428,12 @@ _RENDERERS: Dict[str, Callable[[_RenderContext, Event], str]] = {
     SUCCESSION_EVENT: _render_succession,
     LINE_FAILED_EVENT: _render_line_failed,
     ABSORPTION_EVENT: _render_absorption,
+    TREATY_EVENT: _render_treaty,
+    MARRIAGE_EVENT: _render_marriage,
+    VASSALAGE_EVENT: _render_vassalage,
+    PROVIDER_PACT_EVENT: _render_provider_pact,
+    WAR_DECLARED_EVENT: _render_war_declared,
+    WAR_ENDED_EVENT: _render_war_ended,
 }
 
 

@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from .. import START_YEAR
 from ..characters import Character, render_bloodline
+from ..diplomacy import NEUTRALITY, stance
 from ..chronicle import pulse_events
 from ..entities import Event
 from ..factions import Faction
@@ -255,6 +256,10 @@ class MainWindow(QMainWindow):
             f"Strength: {faction.military_strength}   Treasury: {faction.treasury}",
             f"Prominence: {faction.prominence}   Latest intent: {intent}",
         ]
+        diplomacy = self._describe_diplomacy(faction)
+        if diplomacy:
+            lines.append("")
+            lines.append(diplomacy)
         bloodline = self._describe_bloodline(leader)
         if bloodline:
             lines.append("")
@@ -270,6 +275,47 @@ class MainWindow(QMainWindow):
             for ev in recent:
                 lines.append(f"  TA {ev.year}: {ev.text or ev.type}")
         return "\n".join(lines)
+
+    def _describe_diplomacy(self, faction: Faction) -> Optional[str]:
+        """This faction's standing toward others, as of the displayed year.
+
+        Shows the fealty bonds (overlord, vassals) and every non-neutral stance,
+        each with the raw disposition scalar. Read off the snapshot faction, so it
+        reflects the scrubbed year, not the live world.
+        """
+        names = self._faction_names
+        lines: List[str] = []
+        if faction.overlord_faction_id is not None:
+            lines.append(f"  Overlord: {names.get(faction.overlord_faction_id, '—')}")
+        if self._latest_snapshot is not None:
+            vassals = sorted(
+                names.get(e.id, str(e.id))
+                for e in self._latest_snapshot.entities.values()
+                if isinstance(e, Faction) and e.overlord_faction_id == faction.id
+            )
+            if vassals:
+                lines.append(f"  Vassals: {', '.join(vassals)}")
+        related = (
+            set(faction.at_war_with)
+            | set(faction.treaties)
+            | {int(k) for k in faction.disposition}
+        )
+        relations: List[str] = []
+        for other_id in sorted(related):
+            other = self._faction(other_id)
+            if other is None:
+                continue
+            label = stance(faction, other)
+            if label == NEUTRALITY:
+                continue
+            disp = faction.disposition_toward(other_id)
+            relations.append(f"    {names.get(other_id, other_id)}: {label} ({disp:+d})")
+        if relations:
+            lines.append("  Relations:")
+            lines.extend(relations)
+        if not lines:
+            return None
+        return "Diplomacy:\n" + "\n".join(lines)
 
     def _describe_bloodline(self, leader: Optional[object]) -> Optional[str]:
         """The ruling leader's bloodline (dynasty view) as of the displayed year.
