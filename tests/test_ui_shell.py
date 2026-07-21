@@ -177,6 +177,24 @@ def test_seeded_window_streams_visible_prose_into_the_annals(qapp):
         window.close()
 
 
+def test_inspecting_a_realm_shows_its_diplomacy_block(qapp):
+    # Clicking a realm's territory renders a diplomacy dossier (stances + bonds)
+    # from the displayed-year snapshot — the ticket-09 inspection surface.
+    window = build_window("fellowship")  # roster + factions seeded
+    try:
+        for snap, evs in window._playback.fast_forward_to(3 * TICKS_PER_YEAR):
+            window._on_frontier_changed(window._playback.frontier)
+            window._on_tick_advanced(snap, evs)
+        site = window._grid.site_id_of("Minas Tirith")
+        tile = next(s for s in window._grid.sites if s.id == site)
+        text = window.describe_tile(tile.col, tile.row)
+        assert "Diplomacy:" in text  # the block rendered
+        # Gondor's seeded temper surfaces as a non-neutral stance toward Mordor.
+        assert "Mordor" in text and "hostility" in text
+    finally:
+        window.close()
+
+
 def test_above_threshold_located_events_fire_a_map_pulse(qapp):
     window = build_window("fellowship")
     pulsed = []
