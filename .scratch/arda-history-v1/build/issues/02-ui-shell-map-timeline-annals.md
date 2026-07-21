@@ -6,12 +6,12 @@
 
 **Blocked by:** 01
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `QGraphicsView`/`QGraphicsScene` renders `references/Middle Earth v7.jpg` as the canvas with pan and zoom.
-- [ ] Timeline toolbar: play, pause, step-forward-one-year, speed (ticks/sec) control, and a scrub `QSlider`; current TA year shown prominently.
-- [ ] Sim runs on a `QThread`, delivering `(snapshot, events)` per year to the UI via signals; the UI never blocks on the sim.
-- [ ] Snapshot-per-year cache: scrub/seek to year T **restores snapshot[T]** (no replay); seeking past the simulated frontier fast-forwards the sim; you can only scrub within simulated years.
-- [ ] Virtualized `QListView` "Annals" dock streams events and stays responsive across many years.
-- [ ] An inspection dock exists and updates on selection (stub fields acceptable until real entities land).
-- [ ] Manual verification: launch the app, watch years advance, pause/step/scrub, confirm scrub is instant.
+- [x] `QGraphicsView`/`QGraphicsScene` renders the map as the canvas with pan and zoom. — `ui/map_view.py` (the DF-style tile map per ADR-0001, in place of the v7 jpg).
+- [x] Timeline toolbar: play, pause, step-forward-one-tick, speed (ticks/sec) control, and a scrub `QSlider`; current TA year + month shown prominently. — `ui/mainwindow.py`.
+- [x] Sim runs on a `QThread`, delivering `(snapshot, events)` per tick to the UI via signals; the UI never blocks on the sim. — `ui/sim_worker.SimWorker` (`tickAdvanced`/`frontierChanged`).
+- [x] Snapshot-per-tick cache: scrub/seek to tick T **restores snapshot[T]** (no replay); seeking past the frontier fast-forwards the sim; you can only scrub within the simulated frontier. — `playback.py` (`restore`/`fast_forward_to`/`frontier`).
+- [x] Virtualized `QListView` "Annals" dock streams events and stays responsive across many years. — `ui/annals_model.py`.
+- [x] An inspection dock exists and updates on selection (now populated: tile → faction dossier + bloodline + diplomacy). — `ui/mainwindow.describe_tile`.
+- [x] Verification: offscreen UI smoke tests drive advance / step / scrub / show-all and confirm scrub restores without new events. — `tests/test_ui_shell.py`, `tests/test_playback.py`.

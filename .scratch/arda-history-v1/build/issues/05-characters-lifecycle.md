@@ -6,12 +6,12 @@
 
 **Blocked by:** 03
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] `Character` record: `race`, `birth_year`, `sex`, `location_id`, `faction_id?`, `role`, trait vector (`leadership, martial, ambition, loyalty`, optional `wisdom/guile`), kinship id-fields (`parent_ids`, `spouse_id`), and a derived `prominence`.
-- [ ] A `race` config table (`mortality_kind ∈ mortal|long_lived|immortal`, `maturity_age`, `fertility_window`, `base_death_curve`).
-- [ ] Phase 1 ages everyone, rolls natural/disease deaths (integer/fixed-point comparisons) and births on established couples, all off the seeded RNG; violent death is deferred to war (ticket 11).
-- [ ] Immortals skip the natural-death roll; Elves accrue a weariness drive and can **depart** (status `departed`).
-- [ ] The canon TA 2965 roster is seeded from research (correct rulers/ages/locations); the not-yet-born list stays absent at seed.
-- [ ] `birth`, `death`, `departed` events emitted with the right subjects; characters are inspectable (fields + by-subject timeline), including tombstoned ones.
-- [ ] Tests: deterministic births/deaths under a fixed seed; immortals never die naturally; the seed roster matches canon and excludes not-yet-born characters.
+- [x] `Character` record: `race`, `birth_year`, `sex`, `location_id`, `faction_id?`, `role`, trait vector (`leadership, martial, ambition, loyalty`, optional `wisdom/guile`), kinship id-fields (`parent_ids`, `spouse_id`), and a derived `prominence`. — `characters.Character`/`compute_prominence`.
+- [x] A `race` config table (`mortality_kind ∈ mortal|long_lived|immortal`, `maturity_age`, `fertility_window`, `base_death_curve`). — `characters.RaceConfig`/`RACE_CONFIG`.
+- [x] Phase 1 ages everyone, rolls natural/disease deaths (integer basis-point comparisons) and births on established couples, all off the seeded RNG; violent death is deferred to war (ticket 11). — `characters.aging_births_deaths`.
+- [x] Immortals skip the natural-death roll; Elves accrue a weariness drive and can **depart** (status `departed`). — `_maybe_depart`, `is_immortal`.
+- [x] The canon TA 2965 roster is seeded from research (correct rulers/ages/locations); the not-yet-born list stays absent at seed. — `characters.seed_roster`/`_ROSTER`.
+- [x] `birth`, `death`, `departed` events emitted with the right subjects; characters are inspectable (fields + by-subject timeline), including tombstoned ones. — `BIRTH/DEATH/DEPARTED_EVENT`, `character_timeline`.
+- [x] Tests: deterministic births/deaths under a fixed seed; immortals never die naturally; the seed roster matches canon and excludes not-yet-born characters. — `tests/test_characters.py`.
