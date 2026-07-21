@@ -6,14 +6,14 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A `World` holds id-keyed typed record collections + run-level fields (`current_year` starting TA 2965, RNG state, `id_counter`, `config`, append-only `events`).
-- [ ] Entity base fields exist: `id`, `kind`, `name`, `created_year`, `status` (`active` + tombstone enum `dead`/`departed`/`destroyed`); ids are monotonic and never reused.
-- [ ] All cross-references are integer ids; state serializes as a plain tree with no pointer cycles.
-- [ ] A fixed 8-phase tick pipeline scaffold runs each `system(world, rng) -> events` in order (phases registered but empty of game logic); advancing a tick increments the year and appends events.
-- [ ] One seeded `random.Random`, seeded via `sha256(seed_str)` → int, threaded through the pipeline; `seed_str` stored verbatim.
-- [ ] `Event` record (`id`, `year`, `type`, `subject_ids`, `location_id?`, `importance`, `payload`, `text?`) is appended to the log; a placeholder event type is emitted per tick to exercise the stream.
-- [ ] Save = canonical JSON (`sort_keys`, never pickle/`hash()`) of state + event log + `rng.getstate()` + provenance header (`schema_version, code_version, python_version, rng_family, scenario_id, scenario_version, seed_str`); load = direct rehydrate.
-- [ ] A headless driver advances K ticks and dumps the event stream.
-- [ ] Determinism tests: same (seed, config) → byte-identical run twice and across processes; save→load→continue equals never-stopping (bit-identical).
+- [x] A `World` holds id-keyed typed record collections + run-level fields (RNG state, `id_counter`, `config`, append-only `events`; `current_year`/`month` derived from the `tick` clock starting TA 2965). — `world.py`.
+- [x] Entity base fields exist: `id`, `kind`, `name`, `created_year`, `status` (`active` + tombstone enum `dead`/`departed`/`destroyed`); ids are monotonic and never reused. — `entities.Entity`/`EntityStatus`, `World.next_id`.
+- [x] All cross-references are integer ids; state serializes as a plain tree with no pointer cycles. — enforced across `entities`/`world`.
+- [x] A fixed multi-phase tick pipeline runs each `system(world, rng) -> events` in order (phases registered, empty until their tickets land); advancing a tick appends events and increments the clock. — `pipeline.PIPELINE`/`run_tick`.
+- [x] One seeded `random.Random`, seeded via `sha256(seed_str)` → int, threaded through the pipeline; `seed_str` stored verbatim. — `rng.make_rng`, `RunConfig.seed_str`.
+- [x] `Event` record (`id`, `year`, `type`, `subject_ids`, `location_id?`, `importance`, `payload`, `text?`) is appended to the log; a placeholder `tick` heartbeat is emitted per tick to exercise the stream. — `entities.Event`, `pipeline.HEARTBEAT_EVENT_TYPE`.
+- [x] Save = canonical JSON (`sort_keys`, never pickle/`hash()`) of state + event log + `rng.getstate()` + provenance header (`schema_version, code_version, python_version, rng_family, scenario_id, scenario_version, seed_str`); load = direct rehydrate, with an ordered v1→v2 migration chain. — `persistence.py`.
+- [x] A headless driver advances K ticks and dumps the event stream. — `driver.main` (`arda-sim`).
+- [x] Determinism tests: same (seed, config) → byte-identical run twice and across processes; save→load→continue equals never-stopping (bit-identical). — `tests/test_determinism.py`, `tests/test_persistence.py`, `tests/test_core.py`, `tests/test_driver.py`.
