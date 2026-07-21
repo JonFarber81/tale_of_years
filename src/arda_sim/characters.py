@@ -305,15 +305,17 @@ def aging_births_deaths(world: World, rng: random.Random) -> List[Event]:
 
 
 def _kill(world: World, char: Character, cause: str) -> Event:
-    """Tombstone a character as dead (record kept; kinship still resolves)."""
+    """Tombstone a character as dead (record kept; kinship still resolves).
+
+    Emits a *structured* event; the chronicle scores its importance and renders
+    its prose at emission (build ticket 06), so this system never phrases itself.
+    """
     char.status = EntityStatus.DEAD.value
     return world.new_event(
         type=DEATH_EVENT,
         subject_ids=[char.id],
         location_id=char.location_id,
-        importance=char.prominence,
         payload={"cause": cause, "age": char.age(world.current_year), "race": char.race},
-        text=f"{char.name} died.",
     )
 
 
@@ -334,9 +336,7 @@ def _maybe_depart(world: World, rng: random.Random, char: Character) -> List[Eve
             type=DEPARTED_EVENT,
             subject_ids=[char.id],
             location_id=char.location_id,
-            importance=char.prominence,
             payload={"race": char.race, "age": char.age(world.current_year)},
-            text=f"{char.name} sailed West over the Sea.",
         )
     ]
 
@@ -361,9 +361,7 @@ def _maybe_birth(
         type=BIRTH_EVENT,
         subject_ids=[child.id, mother.id, father.id],
         location_id=child.location_id,
-        importance=child.prominence,
         payload={"race": child.race, "sex": child.sex},
-        text=f"{child.name} was born.",
     )
 
 
