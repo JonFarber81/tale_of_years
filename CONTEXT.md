@@ -189,3 +189,8 @@ has detail but no single place.
 importance, chronicle sentence, and the structured facts behind it (for a
 battle: the sides, strengths, casualties, deaths). Shown in the Inspection
 dock; the deep reading of what the feed states in one line.
+
+**Dossier subject** — the one entity a map click resolves to and the
+Inspection dock headlines, chosen most-specific-first: a host standing on
+the tile, else a site there, else the owning faction, else the bare tile.
+Whatever is not the subject renders only as trimmed *context* beneath it.
