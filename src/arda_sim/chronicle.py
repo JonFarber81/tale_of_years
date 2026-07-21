@@ -47,6 +47,11 @@ from .economy import (
 )
 from .entities import Event
 from .factions import FACTION_INTENT_EVENT
+from .ring import (
+    RING_CLAIMED_EVENT,
+    RING_MOVED_EVENT,
+    RING_TRANSFERRED_EVENT,
+)
 from .succession import ABSORPTION_EVENT, LINE_FAILED_EVENT, SUCCESSION_EVENT
 from .war import (
     BATTLE_EVENT,
@@ -119,6 +124,12 @@ BASE_WEIGHT: Dict[str, int] = {
     FOUNDING_EVENT: 40,
     SETTLEMENT_GREW_EVENT: 28,
     ROAD_OPENED_EVENT: 22,
+    # The One Ring (ticket 13): its every stirring is history's quiet gravity. A
+    # claim is the loudest thing in the world; the Ring changing hands rings just
+    # below; even a step on an errand clears the important-only cut.
+    RING_CLAIMED_EVENT: 90,
+    RING_TRANSFERRED_EVENT: 70,
+    RING_MOVED_EVENT: 45,
     _HEARTBEAT_EVENT: 0,  # the placeholder tick is never important
 }
 
@@ -661,6 +672,49 @@ def _render_war_ended(ctx: _RenderContext, event: Event) -> str:
     return template.format(a=a, b=b)
 
 
+_RING_TRANSFER_PHRASING: Dict[str, str] = {
+    "inheritance": "passed to {to} on the death of {frm}",
+    "gift": "was given by {frm} to {to}",
+    "theft": "was stolen from {frm} by {to}",
+    "loss": "slipped from {frm} and was lost",
+    "found": "was found by {to}",
+    "war_capture": "was seized by {to} amid the fighting",
+    "errand": "was carried onward by {to}",
+}
+
+
+def _render_ring_transferred(ctx: _RenderContext, event: Event) -> str:
+    payload = event.payload or {}
+    mode = payload.get("mode", "")
+    frm = ctx.name(payload["from_bearer_id"]) if payload.get("from_bearer_id") else "its keeper"
+    to_id = payload.get("to_bearer_id")
+    to = ctx.name(to_id) if to_id else "the ground where it fell"
+    template = _RING_TRANSFER_PHRASING.get(mode, "changed hands")
+    return "The One Ring " + template.format(frm=frm, to=to) + "."
+
+
+def _render_ring_moved(ctx: _RenderContext, event: Event) -> str:
+    place = ctx.place(event.location_id)
+    if (event.payload or {}).get("arrived") and place:
+        return f"The One Ring was borne to {place}."
+    at = f" toward {place}" if place else " on in secret"
+    return f"The One Ring passed{at}."
+
+
+def _render_ring_claimed(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    bearer = ctx.name(subjects[1]) if len(subjects) >= 2 else "its bearer"
+    template = _pick(
+        (
+            "{bearer}, gripped by the Ring, claimed it for their own.",
+            "The Ring's will rose in {bearer}, who would not let it go.",
+        ),
+        event,
+        salt=25,
+    )
+    return template.format(bearer=bearer)
+
+
 # The per-type renderer registry. A type with no renderer yields no prose (the
 # feed shows a structured placeholder for it) — this is where later tickets
 # register their templates.
@@ -689,6 +743,9 @@ _RENDERERS: Dict[str, Callable[[_RenderContext, Event], str]] = {
     FOUNDING_EVENT: _render_founding,
     SETTLEMENT_GREW_EVENT: _render_settlement_grew,
     ROAD_OPENED_EVENT: _render_road_opened,
+    RING_TRANSFERRED_EVENT: _render_ring_transferred,
+    RING_MOVED_EVENT: _render_ring_moved,
+    RING_CLAIMED_EVENT: _render_ring_claimed,
 }
 
 

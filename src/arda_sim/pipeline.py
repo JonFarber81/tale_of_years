@@ -24,6 +24,7 @@ from .diplomacy import diplomacy as _diplomacy  # phase 3
 from .economy import construction_economy as _construction_economy  # phase 6
 from .entities import Event
 from .factions import faction_decisions as _faction_decisions  # phase 3
+from .ring import ring_system as _ring  # runs after war so it can read the field
 from .succession import succession as _succession  # phase 2
 from .war import war as _war  # phase 5
 from .world import World
@@ -52,6 +53,7 @@ PIPELINE: Tuple[Tuple[str, System], ...] = (
     ("movement", _movement),
     ("war", _war),
     ("construction_economy", _construction_economy),
+    ("ring", _ring),
     ("sauron_rise", _sauron_rise),
     ("salience_bookkeeping", _salience_bookkeeping),
 )

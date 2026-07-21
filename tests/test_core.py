@@ -43,6 +43,7 @@ def test_pipeline_phases_run_in_fixed_order():
         "movement",
         "war",
         "construction_economy",
+        "ring",
         "sauron_rise",
         "salience_bookkeeping",
     ]
