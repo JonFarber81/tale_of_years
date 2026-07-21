@@ -6,8 +6,8 @@ razing — get handcrafted narrative blocks composed from the event's payload;
 every other type falls back to the chronicle sentence plus a readable
 key/value rendering, resolving faction ids to names where it can.
 
-Pure text over resolver callables (no widgets), so it tests without a window
-and the dock stays a plain label.
+Pure HTML-string functions over resolver callables (no widgets), so it tests
+without a window; the dock renders the result as rich text.
 """
 
 from __future__ import annotations
@@ -17,7 +17,8 @@ from typing import Callable, List, Optional
 from ..chronicle import IMPORTANT_THRESHOLD
 from ..entities import Event
 from ..war import BATTLE_EVENT, CONQUEST_EVENT, RAZING_EVENT, SIEGE_EVENT
-from .annals_style import bucket_of
+from .annals_style import BUCKET_COLORS, bucket_of
+from .dossier_html import NEUTRAL_ACCENT, banner, esc, para
 
 # Resolvers the window supplies: id -> display name (None where unknowable).
 FactionName = Callable[[int], str]
@@ -32,18 +33,23 @@ def render_event_dossier(
     site_name: SiteName,
     region_name: RegionName,
 ) -> str:
-    """The full dossier text for one event (header, sentence, detail block)."""
+    """The full dossier (HTML) for one event: banner, sentence, detail block.
+
+    The banner absorbs the year, category bucket, and the notable/minor
+    importance verdict (shared anatomy, inspection-ui ticket 01); the accent
+    bar wears the bucket's feed color.
+    """
+    bucket = bucket_of(event.type)
     weight = "notable" if event.importance >= IMPORTANT_THRESHOLD else "minor"
-    lines = [
-        f"── TA {event.year} · {bucket_of(event.type)} · {weight} ──",
-    ]
+    accent_color = BUCKET_COLORS.get(bucket)
+    accent = accent_color.name() if accent_color is not None else NEUTRAL_ACCENT
+    parts = [banner(f"Event · {bucket} · {weight}", f"TA {event.year}", accent)]
     if event.text:
-        lines.append(event.text)
+        parts.append(para(f"<i>{esc(event.text)}</i>"))
     body = _detail_block(event, faction_name, site_name, region_name)
     if body:
-        lines.append("")
-        lines.extend(body)
-    return "\n".join(lines)
+        parts.append(para("<br>".join(esc(line) for line in body)))
+    return "".join(parts)
 
 
 def _detail_block(

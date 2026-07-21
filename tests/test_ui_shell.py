@@ -273,7 +273,7 @@ def test_inspecting_a_realm_shows_its_diplomacy_block(qapp):
         site = window._grid.site_id_of("Minas Tirith")
         tile = next(s for s in window._grid.sites if s.id == site)
         text = window.describe_tile(tile.col, tile.row)
-        assert "Diplomacy:" in text  # the block rendered
+        assert "DIPLOMACY" in text  # the section header rendered
         # Gondor's seeded temper surfaces as a non-neutral stance toward Mordor.
         assert "Mordor" in text and "hostility" in text
     finally:
@@ -294,7 +294,7 @@ def test_marching_hosts_render_and_are_inspectable(qapp):
         assert len(window._map._army_items) == len(hosts)
         host = hosts[0]
         text = window.describe_tile(host.col, host.row)
-        assert host.name in text and "Strength:" in text and "Destination:" in text
+        assert host.name in text and "Strength" in text and "Destination" in text
     finally:
         window.close()
 
@@ -391,7 +391,7 @@ def test_battle_dossier_reads_as_prose(qapp):
         },
     )
     text = _dossier(event, {10: "Gondor", 20: "Mordor"})
-    assert text.startswith("── TA 3018 · war · notable ──")
+    assert "EVENT · WAR · NOTABLE" in text and "TA 3018" in text  # the banner
     assert "Gondor met Mordor in battle" in text
     assert "Gondor broke the host of Mordor before Osgiliath" in text
     assert "swept clear" in text  # the decisive tier reads differently
@@ -436,14 +436,74 @@ def test_generic_dossier_fallback_resolves_faction_ids(qapp):
         payload={"initiator_faction_id": 10, "warmth": 25, "note": None},
     )
     text = _dossier(treaty, {10: "Gondor"})
-    assert "── TA 3010 · diplomacy · notable ──" in text
+    assert "EVENT · DIPLOMACY · NOTABLE" in text and "TA 3010" in text
     assert "initiator: Gondor" in text  # id resolved, suffix dropped
     assert "warmth: 25" in text
     assert "note" not in text  # None values are skipped
 
     bare = Event(id=6, year=3011, type="some_future_type", importance=10)
     text = _dossier(bare)
-    assert text == "── TA 3011 · other · minor ──"  # empty payload stays sane
+    # Empty payload stays sane: just the banner, no body paragraphs.
+    assert "EVENT · OTHER · MINOR" in text and "TA 3011" in text
+    assert "<p" not in text
+
+
+def test_dossier_html_primitives(qapp):
+    from arda_sim.ui.dossier_html import NEUTRAL_ACCENT, banner, stat_grid, section
+
+    b = banner("Faction · realm", "Gondor", "#3f7fb8")
+    assert 'bgcolor="#3f7fb8"' in b  # the identity accent bar
+    assert "FACTION · REALM" in b and "Gondor" in b  # kind-tag caps, name as-is
+    assert 'bgcolor="%s"' % NEUTRAL_ACCENT in banner("Tile", "(3, 4)")
+
+    grid = stat_grid([("Strength", 4200), ("Treasury", None), ("Leader", "Denethor")])
+    assert "Strength" in grid and "4200" in grid and "Denethor" in grid
+    assert "Treasury" not in grid  # None values drop their row
+    assert stat_grid([]) == ""
+
+    assert "<b>DIPLOMACY</b>" in section("Diplomacy")
+
+
+def test_dossier_html_escapes_hostile_names(qapp):
+    from arda_sim.ui.dossier_html import banner, stat_grid
+
+    b = banner("Site", "R&D <keep>")
+    assert "R&amp;D &lt;keep&gt;" in b and "<keep>" not in b
+    grid = stat_grid([("Owner", "Barad<dûr> & co")])
+    assert "&lt;dûr&gt;" in grid and "&amp;" in grid
+
+
+def test_tile_click_renders_html_dossier_into_the_browser(qapp):
+    window = build_window("fellowship")
+    try:
+        site = window._grid.site_id_of("Minas Tirith")
+        tile = next(s for s in window._grid.sites if s.id == site)
+        window._on_tile_clicked(tile.col, tile.row)
+        plain = window._inspection.toPlainText()
+        assert "TILE" in plain and f"({tile.col}, {tile.row})" in plain
+        assert "Minas Tirith" in plain  # the site line made it through
+        html = window.describe_tile(tile.col, tile.row)
+        assert "<table" in html  # genuinely rich text, not escaped plain text
+    finally:
+        window.close()
+
+
+def test_faction_dossier_wears_its_map_color(qapp):
+    from arda_sim.ui import tile_render
+
+    window = build_window("fellowship")
+    try:
+        snap, _ = window._playback.advance()
+        window._on_tick_advanced(snap, [])
+        faction = next(
+            f
+            for f in snap.entities.values()
+            if f.__class__.__name__ == "Faction" and f.name == "Gondor"
+        )
+        html = window.describe_faction(faction)
+        assert tile_render.faction_color(faction.id).name() in html
+    finally:
+        window.close()
 
 
 def test_annals_click_pushes_dossier_into_inspection_dock(qapp):
@@ -455,11 +515,10 @@ def test_annals_click_pushes_dossier_into_inspection_dock(qapp):
         )
         model = window._annals_model
         window._on_annals_event_clicked(model.index(1))  # the event row
-        assert f"── TA {START_YEAR} · diplomacy · notable ──" in (
-            window._inspection_label.text()
-        )
+        shown = window._inspection.toPlainText()
+        assert "EVENT · DIPLOMACY · NOTABLE" in shown and f"TA {START_YEAR}" in shown
         window._on_annals_event_clicked(model.index(0))  # header: dock untouched
-        assert "diplomacy" in window._inspection_label.text()
+        assert "DIPLOMACY" in window._inspection.toPlainText()
     finally:
         window.close()
 
