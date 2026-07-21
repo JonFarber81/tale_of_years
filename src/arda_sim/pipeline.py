@@ -20,7 +20,8 @@ from . import TICKS_PER_YEAR
 from .characters import aging_births_deaths as _aging_births_deaths  # phase 1
 from .chronicle import finalize_event
 from .entities import Event
-from .factions import faction_decisions as _faction_decisions  # phase 2
+from .factions import faction_decisions as _faction_decisions  # phase 3
+from .succession import succession as _succession  # phase 2
 from .world import World
 
 System = Callable[[World, random.Random], List[Event]]
@@ -57,6 +58,7 @@ def _salience_bookkeeping(world: World, rng: random.Random) -> List[Event]:  # p
 # reproducibility contract and must not change casually — see spec phase-flow.
 PIPELINE: Tuple[Tuple[str, System], ...] = (
     ("aging_births_deaths", _aging_births_deaths),
+    ("succession", _succession),
     ("faction_decisions", _faction_decisions),
     ("diplomacy", _diplomacy),
     ("movement", _movement),
