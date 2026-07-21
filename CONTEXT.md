@@ -135,3 +135,37 @@ host to the front, fighting as any army but with **unit-type modifiers** from it
 overland but strikes an enemy **shore** in an occasional (once-a-year, seeded)
 raiding season, pillaging — denting the target's strength and reading in the
 annals — without ever seizing a seat.
+
+## Construction & economy
+
+**Construction phase** — tick phase 6, run after war: the built world changing
+where there is peace. It accrues income once a year, then lets each realm that
+chose the **build** intent raise exactly one affordable work. "08 builds where
+there is peace, 07 destroys where there is war."
+
+**Treasury** — a realm's single economy scalar. It accrues **income** once a year
+(month 1) from every tile it holds, by terrain (`plains`/`road` rich, mountain and
+marsh poor, water nothing) plus a bonus per settlement on owned ground. Lean
+treasuries genuinely gate building, so razing bites. **Population** is never stored
+— a *derived* aggregate of the same holdings (`faction_population`).
+
+**Found / rebuild** — a realm turns an **un-settled** owned location (a razed
+`ruin`, or an empty `pass`) into a **town**, or — at a **border or a pass** — into
+a **fortress** (`fort`). Flips the `Site`'s kind/tier in place (no new entity) and
+emits `founding`; a rebuilt ruin is the peacetime foil to war's razing.
+
+**Grow** — a realm raises an owned **town** into a **city** (a settlement **tier**
+up). Emits `settlement_grew`. A site's `kind`/`tier` are the inspectable rank.
+
+**Open a road** — a realm paves the slowest owned tile next to one of its
+settlements into a `ROAD` (speeding later movement). Emits `road_opened`. Terrain
+is otherwise config; a paved tile is a persisted overlay (`grid.paved`).
+
+**Built map** — the *mutable* slice of the grid that construction and war change:
+per-tile `owner`, each `Site`'s `kind`/`tier`, and paved roads. It persists with a
+save (schema v3) and is re-applied onto the reloaded config grid, so a resumed run
+carries its rebuilt towns and roads forward (see ADR-0007).
+
+**Canon lean (building)** — canonicity softly weights the *choice* toward
+**restoration** (founding/rebuilding over mere growth), never the fixed integer
+**price** of a work; the dice-free counterpart to the phase-2 intent lean.

@@ -40,6 +40,11 @@ from .diplomacy import (
     WAR_DECLARED_EVENT,
     WAR_ENDED_EVENT,
 )
+from .economy import (
+    FOUNDING_EVENT,
+    ROAD_OPENED_EVENT,
+    SETTLEMENT_GREW_EVENT,
+)
 from .entities import Event
 from .factions import FACTION_INTENT_EVENT
 from .succession import ABSORPTION_EVENT, LINE_FAILED_EVENT, SUCCESSION_EVENT
@@ -108,6 +113,12 @@ BASE_WEIGHT: Dict[str, int] = {
     BATTLE_EVENT: 60,
     SIEGE_EVENT: 45,
     COASTAL_RAID_EVENT: 40,
+    # Construction & economy (ticket 12): a new-founded or rebuilt settlement is a
+    # mark on the map that clears the important-only cut; a settlement growing and
+    # a road opening are quieter civic works that read only under "show all".
+    FOUNDING_EVENT: 40,
+    SETTLEMENT_GREW_EVENT: 28,
+    ROAD_OPENED_EVENT: 22,
     _HEARTBEAT_EVENT: 0,  # the placeholder tick is never important
 }
 
@@ -567,6 +578,74 @@ def _render_coastal_raid(ctx: _RenderContext, event: Event) -> str:
     return template.format(raider=raider, target=target, at=at)
 
 
+def _render_founding(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    builder = ctx.name(subjects[0]) if subjects else "a realm"
+    payload = event.payload or {}
+    place = ctx.place(event.location_id)
+    at = f" {place}" if place else ""
+    if payload.get("kind") == "fort":
+        template = _pick(
+            (
+                "{builder} raised a fortress{at} to guard its marches.",
+                "A stronghold was built{at} at the bidding of {builder}.",
+            ),
+            event,
+            salt=20,
+        )
+    elif payload.get("rebuilt"):
+        template = _pick(
+            (
+                "{builder} raised{at} anew from its ruins.",
+                "The ruins{at} were rebuilt under {builder}.",
+            ),
+            event,
+            salt=21,
+        )
+    else:
+        template = _pick(
+            (
+                "{builder} founded a new town{at}.",
+                "A settlement was founded{at} by {builder}.",
+            ),
+            event,
+            salt=22,
+        )
+    return template.format(builder=builder, at=at)
+
+
+def _render_settlement_grew(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    builder = ctx.name(subjects[0]) if subjects else "a realm"
+    place = ctx.place(event.location_id)
+    at = f" {place}" if place else " one of its towns"
+    template = _pick(
+        (
+            "Under {builder},{at} grew into a city.",
+            "{builder} saw{at} rise to a city.",
+        ),
+        event,
+        salt=23,
+    )
+    return template.format(builder=builder, at=at)
+
+
+def _render_road_opened(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    builder = ctx.name(subjects[0]) if subjects else "a realm"
+    place = ctx.place(event.location_id)
+    at = f" from {place}" if place else ""
+    template = _pick(
+        (
+            "{builder} opened a new road{at} across its lands.",
+            "A road was laid{at} at the labour of {builder}.",
+        ),
+        event,
+        salt=24,
+    )
+    return template.format(builder=builder, at=at)
+
+
 def _render_war_ended(ctx: _RenderContext, event: Event) -> str:
     subjects = event.subject_ids
     a = ctx.name(subjects[0]) if subjects else "a realm"
@@ -607,6 +686,9 @@ _RENDERERS: Dict[str, Callable[[_RenderContext, Event], str]] = {
     CONQUEST_EVENT: _render_conquest,
     RAZING_EVENT: _render_razing,
     COASTAL_RAID_EVENT: _render_coastal_raid,
+    FOUNDING_EVENT: _render_founding,
+    SETTLEMENT_GREW_EVENT: _render_settlement_grew,
+    ROAD_OPENED_EVENT: _render_road_opened,
 }
 
 

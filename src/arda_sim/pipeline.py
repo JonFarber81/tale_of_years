@@ -21,6 +21,7 @@ from .armies import movement as _movement  # phase 4
 from .characters import aging_births_deaths as _aging_births_deaths  # phase 1
 from .chronicle import finalize_event
 from .diplomacy import diplomacy as _diplomacy  # phase 3
+from .economy import construction_economy as _construction_economy  # phase 6
 from .entities import Event
 from .factions import faction_decisions as _faction_decisions  # phase 3
 from .succession import succession as _succession  # phase 2
@@ -31,10 +32,6 @@ System = Callable[[World, random.Random], List[Event]]
 
 # Placeholder event type emitted once per tick until systems produce real events.
 HEARTBEAT_EVENT_TYPE = "tick"
-
-
-def _construction_economy(world: World, rng: random.Random) -> List[Event]:  # phase 6
-    return []
 
 
 def _sauron_rise(world: World, rng: random.Random) -> List[Event]:  # phase 7

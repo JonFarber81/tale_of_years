@@ -229,7 +229,8 @@ class MainWindow(QMainWindow):
         ]
         for site in grid.sites:
             if site.col == col and site.row == row:
-                lines.append(f"Site: {site.name} ({site.kind})")
+                rank = f", tier {site.tier}" if site.tier else ""
+                lines.append(f"Site: {site.name} ({site.kind}{rank})")
         host = self._army_on(col, row)
         if host is not None:
             lines.append("")

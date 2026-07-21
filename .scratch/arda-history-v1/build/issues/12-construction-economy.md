@@ -4,7 +4,7 @@
 
 **Blocked by:** 07, 11
 
-**Status:** ready-for-agent
+**Status:** done
 
 - [ ] Single `treasury`/economy scalar per faction; yearly income = sum of owned-region `base_yield`; population is a derived aggregate only.
 - [ ] Phase 6 consumes `build` intents, priced against treasury: found a settlement/fortress at an eligible un-settled owned location (fortresses favour border/pass locations), grow a settlement tier, or open a road route; founding flips a Location to a settlement type (no new entity) and emits `founding`.
