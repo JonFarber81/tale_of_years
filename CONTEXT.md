@@ -85,3 +85,53 @@ is never applied to a host in garrison.
 **Objective** — the seat a mustered host marches on: a war enemy, else the
 most-hated seated realm (providers, holding no ground, are never objectives). On
 arrival the host garrisons; the fighting itself is the war phase's (ticket 11).
+
+## War & battles
+
+**War phase** — tick phase 5, run after movement. It reads where every host
+stands and resolves the fighting: field battles, sieges, provider hosts, and
+corsair raids. Only factions the diplomacy phase has flagged **at-war** fight
+(a provider fights its patron's wars). Every outcome-deciding comparison is
+integer/fixed-point, and **canonicity never touches the battle dice** — it
+weights only who musters and who attacks (phase 2), never who wins.
+
+**Field battle** — a clash between two at-war hosts sharing a tile or standing on
+adjacent tiles. Each side's **effective strength** = `size × leader × provider ×`
+(for the defender) `terrain/posture` modifiers, all integer permille; **one
+bounded seeded roll** tilts the ratio both ways at once, so the stronger host
+usually wins, an even fight is a coin toss, and a moderate edge can still be
+overturned. The loser takes the heavier casualties and retreats toward home, or
+is **destroyed** if too few remain.
+
+**Siege** — a host standing on an at-war enemy's fortified **capital seat** invests
+it. A siege is a *multi-tick* state: `Army.siege_progress` accumulates each tick
+against the seat's **fortification** (by site kind — a city holds out far longer
+than a town), so a great fortress resists for months.
+
+**Conquest** — when a siege's progress tops the seat's fortification the seat
+falls and the besieger takes the realm. In v1 taking the **capital** takes *all*
+the realm's land (a decapitation; per-region seats are content-fog). A realm whose
+last ground is lost is **extinguished** — tombstoned with a dormant claim over the
+regions it held, and every war it was party to ends (`make_peace`), exactly as a
+failed ruling line's extinction.
+
+**Razing** — a ruthless conqueror (aggressive posture, or a high war-drive) lays
+the taken land **waste** — ownership goes to *unowned* rather than being annexed —
+instead of holding it. A realm that means to **rule** what it takes holds the seat
+intact: the seam that lets an Isengard seize a land whole and an Orc-host leave
+only ruin behind.
+
+**Named-battle death** — after a battle or a storming, each named leader present
+rolls a rare **integer death check**, far likelier on the broken side and blunted
+by the character's `martial` (a hardened warrior is harder to kill, never immune).
+A **ruler** who falls this way vacates `leader_id`, and the next tick's succession
+phase seats the heir — the "violent death happens in phase 5" contract.
+
+**Provider host** — a committed off-map people whose patron is at war sends a real
+host to the front, fighting as any army but with **unit-type modifiers** from its
+`output` profile (mûmakil = shock, cavalry = mobility, auxiliaries = flat weight).
+
+**Coastal raid** — the Corsairs' exception: a naval provider never marches
+overland but strikes an enemy **shore** in an occasional (once-a-year, seeded)
+raiding season, pillaging — denting the target's strength and reading in the
+annals — without ever seizing a seat.

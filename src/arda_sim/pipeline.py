@@ -24,16 +24,13 @@ from .diplomacy import diplomacy as _diplomacy  # phase 3
 from .entities import Event
 from .factions import faction_decisions as _faction_decisions  # phase 3
 from .succession import succession as _succession  # phase 2
+from .war import war as _war  # phase 5
 from .world import World
 
 System = Callable[[World, random.Random], List[Event]]
 
 # Placeholder event type emitted once per tick until systems produce real events.
 HEARTBEAT_EVENT_TYPE = "tick"
-
-
-def _war(world: World, rng: random.Random) -> List[Event]:  # phase 5
-    return []
 
 
 def _construction_economy(world: World, rng: random.Random) -> List[Event]:  # phase 6

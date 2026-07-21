@@ -3,6 +3,7 @@ baseline, the pact ladder (treaty / marriage / vassalage / provider-pact), the
 war-declaration flag owned here, and the make_peace seam ticket 11 will drive.
 """
 
+from arda_sim import TICKS_PER_YEAR
 from arda_sim import diplomacy as dip
 from arda_sim.characters import Race, add_character, wed
 from arda_sim.diplomacy import (
@@ -203,10 +204,14 @@ def test_make_peace_clears_the_flag_symmetrically_and_is_the_only_peace_path():
 
 
 def test_phase3_never_makes_peace_on_its_own():
-    # war_ended is a seam for ticket 11: phase 3 declares wars but never ends them.
+    # war_ended is the make_peace seam: the diplomacy phase declares wars but
+    # never ends them (only ticket 11's war phase does, on a realm's fall). Drive
+    # phase 3 in isolation over many ticks and confirm it emits no war_ended.
     world, _grid, _ = seed_world("no-peace")
-    events = run_years(world, 30)
-    assert not any(e.type == WAR_ENDED_EVENT for e in events)
+    for _ in range(30 * TICKS_PER_YEAR):
+        dip.diplomacy(world, world.rng)
+        world.tick += 1
+        assert not any(e.type == WAR_ENDED_EVENT for e in world.events)
 
 
 # -- integration: determinism, symmetry, persistence ----------------------
