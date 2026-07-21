@@ -8,7 +8,7 @@ from arda_sim.entities import Event
 from arda_sim.factions import seed_world
 from arda_sim.metrics import WarSummary, war_summary
 from arda_sim.pipeline import run_years
-from arda_sim.war import BATTLE_EVENT
+from arda_sim.war import BATTLE_EVENT, CONQUEST_EVENT, EVASION_EVENT
 
 
 def _ev(etype, **payload):
@@ -22,12 +22,16 @@ def test_summary_counts_musters_battles_and_reads_sizes_and_led():
         _ev(ARMY_MUSTERED_EVENT, size=2000, led=True),
         _ev(BATTLE_EVENT, tier="decisive"),
         _ev(BATTLE_EVENT, tier="marginal"),
+        _ev(CONQUEST_EVENT),
+        _ev(EVASION_EVENT),
         _ev(ARMY_DISBANDED_EVENT, cause="destroyed_in_battle"),
     ]
     s = war_summary(events, span_years=100)
     assert s.musters == 3
     assert s.battles == 2
     assert s.decisive_battles == 1
+    assert s.conquests == 1
+    assert s.evasions == 1
     assert s.hosts_destroyed == 1
     assert s.median_host_size == 2000  # median of 1000, 2000, 3000
     assert s.pct_led == 66  # 2 of 3, floored
@@ -40,7 +44,8 @@ def test_median_is_integer_for_an_even_count():
 
 def test_per_century_normalises_over_the_span():
     s = WarSummary(span_years=50, musters=10, battles=4, decisive_battles=2,
-                   hosts_destroyed=3, median_host_size=1000, pct_led=100)
+                   conquests=1, evasions=0, hosts_destroyed=3,
+                   median_host_size=1000, pct_led=100)
     assert s.per_century(s.decisive_battles) == 4.0  # 2 over 50y → 4/century
     assert s.per_century(s.musters) == 20.0
 
