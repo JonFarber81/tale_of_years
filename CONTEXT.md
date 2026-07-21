@@ -169,3 +169,23 @@ carries its rebuilt towns and roads forward (see ADR-0007).
 **Canon lean (building)** — canonicity softly weights the *choice* toward
 **restoration** (founding/rebuilding over mere growth), never the fixed integer
 **price** of a work; the dice-free counterpart to the phase-2 intent lean.
+
+## Annals & inspection
+
+**Annals feed** — the newest-first chronicle of events the viewer reads,
+capped by the scrub position and constrained by the active filter
+(important-only by default).
+
+**Category bucket** — one of the four scannable groupings an event's type
+maps into: **war**, **diplomacy**, **dynasty** (succession/kinship), and
+**construction** (economy/building). A presentation grouping over event
+types, not a new event field.
+
+**Placed event** — an event anchored to a site (it carries a `location_id`),
+and so navigable-to on the map. An **unplaced** event (a treaty, a marriage)
+has detail but no single place.
+
+**Event dossier** — the detail view of a single event: its year, bucket,
+importance, chronicle sentence, and the structured facts behind it (for a
+battle: the sides, strengths, casualties, deaths). Shown in the Inspection
+dock; the deep reading of what the feed states in one line.

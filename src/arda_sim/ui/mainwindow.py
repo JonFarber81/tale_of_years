@@ -35,6 +35,7 @@ from ..snapshot import Snapshot
 from ..tiles import UNOWNED, TileGrid
 from ..world import format_tick
 from .annals_model import AnnalsModel
+from .annals_style import AnnalsDelegate
 from .map_view import MapView
 from .sim_worker import SimWorker
 
@@ -132,6 +133,8 @@ class MainWindow(QMainWindow):
         annals_view = QListView(self)
         annals_view.setModel(self._annals_model)
         annals_view.setUniformItemSizes(True)  # keeps the virtualized list fast
+        annals_view.setItemDelegate(AnnalsDelegate(annals_view))
+        self._annals_view = annals_view
         annals_dock = QDockWidget("Annals", self)
         annals_dock.setWidget(annals_view)
         self.addDockWidget(Qt.RightDockWidgetArea, annals_dock)
