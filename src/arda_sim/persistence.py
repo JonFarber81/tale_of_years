@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import platform
 from dataclasses import asdict
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from . import RNG_FAMILY, SCHEMA_VERSION, START_YEAR, TICKS_PER_YEAR, __version__
 from . import armies as _armies  # noqa: F401  (registers the Army type)
@@ -20,6 +20,8 @@ from . import characters as _characters  # noqa: F401  (registers the Character 
 from . import factions as _factions  # noqa: F401  (registers the Faction type)
 from .entities import Event, entity_from_dict
 from .rng import state_from_jsonable, state_to_jsonable
+from .scenarios import load_scenario_for_id
+from .tiles import TileGrid
 from .world import RunConfig, World
 
 
@@ -43,11 +45,23 @@ def _migrate_v1_to_v2(data: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
+def _migrate_v2_to_v3(data: Dict[str, Any]) -> Dict[str, Any]:
+    """v3 persists the built map (owner grid + site kinds + roads).
+
+    A v2 save carried no grid, so it rehydrates gridless exactly as before —
+    ``None`` here means "attach no grid on load" (headless/skeleton behaviour).
+    """
+    data["state"].setdefault("grid", None)
+    data["provenance"]["schema_version"] = 3
+    return data
+
+
 # Ordered chain of migration functions, indexed by the schema version they
 # upgrade *from*. Grows as the schema evolves so old saves keep loading. Each
 # entry: (from_version) -> callable(save_dict) -> save_dict.
 _MIGRATIONS: Dict[int, Any] = {
     1: _migrate_v1_to_v2,
+    2: _migrate_v2_to_v3,
 }
 
 
@@ -80,12 +94,40 @@ def to_dict(world: World) -> Dict[str, Any]:
             "entities": [asdict(e) for e in _sorted_entities(world)],
             "events": [asdict(ev) for ev in world.events],
             "rng_state": state_to_jsonable(world.rng.getstate()),
+            "grid": _grid_to_dict(world.grid),
         },
     }
 
 
 def _sorted_entities(world: World):
     return [world.entities[i] for i in sorted(world.entities)]
+
+
+def _grid_to_dict(grid: Optional[TileGrid]) -> Optional[Dict[str, Any]]:
+    """The grid's *mutable* slice: owner ownership (RLE), site kinds, and roads.
+
+    Terrain/regions/site placement are config (reloaded from the scenario on
+    load), so only what the sim changed at runtime persists. ``None`` when the run
+    carries no map (headless/skeleton runs).
+    """
+    if grid is None:
+        return None
+    return {
+        "owner_rle": grid.owner_rle(),
+        "sites": grid.site_state(),
+        "paved": list(grid.paved),
+    }
+
+
+def _grid_from_dict(config: RunConfig, grid_state: Optional[Dict[str, Any]]) -> Optional[TileGrid]:
+    """Rehydrate the built map: reload the config grid, then re-apply run state."""
+    if grid_state is None:
+        return None
+    grid = load_scenario_for_id(config.scenario_id)
+    grid.load_owner_rle(grid_state["owner_rle"])
+    grid.load_site_state(grid_state["sites"])
+    grid.apply_paved(grid_state.get("paved", []))
+    return grid
 
 
 def from_dict(data: Dict[str, Any]) -> World:
@@ -112,6 +154,7 @@ def from_dict(data: Dict[str, Any]) -> World:
         world.entities[entity.id] = entity
     world.events = [Event(**ev) for ev in state["events"]]
     world.rng.setstate(state_from_jsonable(state["rng_state"]))
+    world.grid = _grid_from_dict(config, state.get("grid"))
     return world
 
 

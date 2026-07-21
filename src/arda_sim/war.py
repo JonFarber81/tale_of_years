@@ -417,6 +417,10 @@ def _conquer(
     region_ids = _owned_region_ids(grid, besieged.id)
     new_owner = UNOWNED if raze else attacker.id
     _transfer_faction_tiles(grid, besieged.id, new_owner)
+    if raze:
+        # The stormed seat is thrown down — it drops to a ruin that peacetime
+        # construction (ticket 12) can raise again once someone holds the land.
+        grid.set_site(seat.id, "ruin", 0)
 
     events.append(
         world.new_event(

@@ -253,14 +253,12 @@ def test_diplomacy_state_round_trips_through_save_load():
 
 
 def test_diplomacy_resumes_bit_identically_when_the_grid_is_re_attached():
-    # A reloaded world carries no grid until ticket 12 (ADR-0004), so its phase-3
-    # grid branches (border friction, vassalage offers) are inert and it diverges
-    # from the live run. Re-attaching an identically-painted grid — which is exactly
-    # what ticket 12 will restore — makes the RNG resume through phase 3 exact.
+    # Ticket 12 persists and re-attaches the built grid on load, so a reloaded
+    # world carries its territory forward and its phase-3 grid branches (border
+    # friction, vassalage offers) resume exactly — no manual re-attach needed.
     world, _grid, _ = seed_world("dip-resume")
     run_years(world, 6)
-    reloaded = loads(dumps(world))
-    reloaded.grid = seed_world("dip-resume")[1]  # same seed → identical territory
+    reloaded = loads(dumps(world))  # grid restored automatically
     run_years(world, 4)
     run_years(reloaded, 4)
     assert dumps(world) == dumps(reloaded)

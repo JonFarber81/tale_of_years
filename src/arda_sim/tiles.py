@@ -74,13 +74,19 @@ class Region:
     name: str
 
 
-@dataclass(frozen=True)
+@dataclass
 class Site:
     """A named place anchored to a tile (settlement, fortress, ruin).
 
     ``id`` is a deterministic config-space id (assigned by sorted name in
     :func:`load_grid`), distinct from the entity id space — it is the stable
     handle a character's ``location_id`` points at, mirroring how region ids work.
+
+    ``name``/``col``/``row``/``id`` are fixed config, but ``kind`` and ``tier``
+    become *run state* once construction (build ticket 12) founds, grows, or razes
+    a settlement — a razed ``city`` drops to ``ruin``, a rebuilt ruin rises to a
+    ``town``, and a grown town becomes a ``city``. That mutable slice is persisted
+    and restored alongside the owner grid (see :meth:`TileGrid.site_state`).
     """
 
     name: str
@@ -88,6 +94,7 @@ class Site:
     row: int
     kind: str
     id: int = 0
+    tier: int = 0  # settlement rank (0 = ruin/none, 1 = town/fort, 2 = city)
 
 
 @dataclass
@@ -106,6 +113,10 @@ class TileGrid:
     sites: List[Site] = field(default_factory=list)  # config
     miles_per_tile: int = 15
     owner: List[int] = field(default_factory=list)  # STATE: faction id per tile
+    # STATE: tile indices paved into roads by construction (build ticket 12).
+    # Terrain is otherwise config; these deltas are the only terrain that changes
+    # at runtime, so they persist and are re-applied on top of the config grid.
+    paved: List[int] = field(default_factory=list)
 
     def site_id_of(self, name: str) -> Optional[int]:
         """The config-space id of the site with this name, or None if absent."""
@@ -120,6 +131,33 @@ class TileGrid:
             if site.id == site_id:
                 return site
         return None
+
+    def site_at(self, col: int, row: int) -> Optional[Site]:
+        """The site standing on a tile, or None (the first if several share it)."""
+        for site in self.sites:
+            if site.col == col and site.row == row:
+                return site
+        return None
+
+    def set_site(self, site_id: int, kind: str, tier: int) -> None:
+        """Change a site's ``kind``/``tier`` in place (construction/razing, ticket 12)."""
+        site = self.site_by_id(site_id)
+        if site is not None:
+            site.kind = kind
+            site.tier = tier
+
+    def site_state(self) -> List[List]:
+        """The mutable site slice — ``[[id, kind, tier], ...]`` in id order.
+
+        Only ``kind``/``tier`` change at runtime; the rest is config, so this is
+        all that persists (with the owner grid) to restore the built world.
+        """
+        return [[s.id, s.kind, s.tier] for s in sorted(self.sites, key=lambda s: s.id)]
+
+    def load_site_state(self, state: List[List]) -> None:
+        """Restore site ``kind``/``tier`` from :meth:`site_state` output (by id)."""
+        for sid, kind, tier in state:
+            self.set_site(sid, kind, tier)
 
     def __post_init__(self) -> None:
         n = self.width * self.height
@@ -160,6 +198,21 @@ class TileGrid:
 
     def set_owner(self, col: int, row: int, faction_id: int) -> None:
         self.owner[self.index(col, row)] = faction_id
+
+    def pave(self, index: int) -> None:
+        """Turn a tile into a road (construction, ticket 12), recording the delta.
+
+        The paved index is remembered so the road survives save/load: terrain is
+        config and reloads clean, then every paved tile is laid down again on top.
+        """
+        self.terrain[index] = Terrain.ROAD
+        if index not in self.paved:
+            self.paved.append(index)
+
+    def apply_paved(self, indices: List[int]) -> None:
+        """Re-lay every persisted road onto a freshly-loaded (config) grid."""
+        for index in indices:
+            self.pave(index)
 
     # -- topology --------------------------------------------------------
 
@@ -213,6 +266,16 @@ class TileGrid:
         self.owner = owner
 
 
+# Settlement rank a site of each kind starts at (build ticket 12). Non-settlement
+# markers (gate/pass/volcano/gateway) and ruins carry no rank.
+_KIND_TIER: Dict[str, int] = {"city": 2, "town": 1, "fort": 1}
+
+
+def default_tier(kind: str) -> int:
+    """The settlement rank a freshly-loaded site of this ``kind`` starts at."""
+    return _KIND_TIER.get(kind, 0)
+
+
 def load_grid(scenario: Dict) -> TileGrid:
     """Build a :class:`TileGrid` from a scenario dict (deterministically).
 
@@ -240,7 +303,7 @@ def load_grid(scenario: Dict) -> TileGrid:
     # like region ids), so a character's location_id is stable across processes.
     site_ids = {name: i for i, name in enumerate(sorted(s["name"] for s in scenario.get("sites", [])), start=1)}
     sites = [
-        Site(s["name"], s["col"], s["row"], s["kind"], site_ids[s["name"]])
+        Site(s["name"], s["col"], s["row"], s["kind"], site_ids[s["name"]], default_tier(s["kind"]))
         for s in scenario.get("sites", [])
     ]
 

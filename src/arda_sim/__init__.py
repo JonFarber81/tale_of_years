@@ -7,7 +7,7 @@ log, save/load) that every game system builds on. No game logic yet.
 __version__ = "0.1.0"
 
 # Fixed run constants (see .scratch/arda-history-v1/spec.md and build ticket 01).
-SCHEMA_VERSION = 2  # v2: the clock counts monthly ticks, not years (see persistence).
+SCHEMA_VERSION = 3  # v3: the built map (owner grid + site kinds + roads) persists.
 START_YEAR = 2965  # Third Age; the scenario's canonical start.
 # The tick is the unit of simulation time. A year is TICKS_PER_YEAR ticks, so the
 # clock advances a *month* at a time — history unfolds gradually, not in yearly

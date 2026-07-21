@@ -278,11 +278,9 @@ def test_factions_round_trip_and_continue_identically():
     # a faction rehydrates as the right subtype with its maps intact
     f = next(x for x in factions(reloaded) if x.name == "Mordor")
     assert isinstance(f, Faction) and f.disposition
-    # Continuing after reload stays bit-identical once the grid is re-attached.
-    # A reloaded world carries no grid until ticket 12 (ADR-0004), so its
-    # grid-reading phases (diplomacy, movement) would otherwise freeze; the same
-    # seed repaints identical territory, which is exactly what ticket 12 restores.
-    reloaded.grid = seed_world("save-me")[1]
+    # Continuing after reload stays bit-identical: ticket 12 persists and
+    # re-attaches the built grid on load, so the grid-reading phases (diplomacy,
+    # movement, construction) resume against the same territory automatically.
     run_ticks(world, 3)
     run_ticks(reloaded, 3)
     assert dumps(world) == dumps(reloaded)
