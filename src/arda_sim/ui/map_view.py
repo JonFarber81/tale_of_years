@@ -200,6 +200,16 @@ class MapView(QGraphicsView):
         self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
         self._scale = self.transform().m11()
 
+    def focus_tile(self, col: int, row: int) -> None:
+        """Center the view on a tile and flash a pulse there.
+
+        The annals-click jump (annals-ui ticket 02): a pan plus the same
+        transient, self-cleaning ring the salience pulses use — nothing
+        persists on the map afterwards.
+        """
+        self.centerOn(col * TILE + TILE / 2, row * TILE + TILE / 2)
+        self.pulse(col, row)
+
     # -- salience pulses -------------------------------------------------
 
     def pulse(self, col: int, row: int) -> None:

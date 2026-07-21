@@ -34,7 +34,7 @@ from ..playback import Playback
 from ..snapshot import Snapshot
 from ..tiles import UNOWNED, TileGrid
 from ..world import format_tick
-from .annals_model import AnnalsModel
+from .annals_model import AnnalsModel, EventRole
 from .annals_style import AnnalsDelegate
 from .map_view import MapView
 from .sim_worker import SimWorker
@@ -134,6 +134,7 @@ class MainWindow(QMainWindow):
         annals_view.setModel(self._annals_model)
         annals_view.setUniformItemSizes(True)  # keeps the virtualized list fast
         annals_view.setItemDelegate(AnnalsDelegate(annals_view))
+        annals_view.clicked.connect(self._on_annals_event_clicked)
         self._annals_view = annals_view
         annals_dock = QDockWidget("Annals", self)
         annals_dock.setWidget(annals_view)
@@ -203,6 +204,22 @@ class MainWindow(QMainWindow):
         if not self._scrub.isEnabled():
             self._scrub.setEnabled(True)
         self._scrub.setMaximum(frontier)
+
+    # -- annals -> map ---------------------------------------------------
+
+    def _on_annals_event_clicked(self, index) -> None:
+        """An annals row click jumps the map to a placed event's site.
+
+        Space-only by decision (annals-ui spec): the timeline, scrub cap, and
+        filter are untouched. A year-header row or an unplaced event moves
+        nothing (the dossier half of the click is ticket 03).
+        """
+        event = self._annals_model.data(index, EventRole)
+        if event is None or event.location_id is None:
+            return
+        site = self._grid.site_by_id(event.location_id)
+        if site is not None:
+            self._map.focus_tile(site.col, site.row)
 
     # -- map -> inspection ----------------------------------------------
 
