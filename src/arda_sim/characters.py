@@ -426,6 +426,105 @@ def characters(world: World, *, alive_only: bool = False) -> List[Character]:
     return [c for c in result if c.alive] if alive_only else result
 
 
+# -- kinship: bloodlines as a query over parent_ids -----------------------
+#
+# There is no Dynasty entity; a bloodline is derived from the character kinship
+# id-fields on demand. All of these resolve tombstoned (dead/departed) records
+# too — the whole line reads back — and iterate deterministically (id order).
+
+def _character(world: World, char_id: int) -> Optional[Character]:
+    entity = world.entities.get(char_id)
+    return entity if isinstance(entity, Character) else None
+
+
+def children_of(world: World, char_id: int) -> List[Character]:
+    """The direct children of a character (id order): those naming it as a parent."""
+    return [c for c in characters(world) if char_id in c.parent_ids]
+
+
+def ancestors(world: World, char_id: int) -> List[Character]:
+    """Every forebear up the ``parent_ids`` chains, nearest first, without duplicates.
+
+    A breadth-first walk over parents, so both a father's and a mother's line are
+    followed; cycles (there are none in valid data) cannot loop it.
+    """
+    start = _character(world, char_id)
+    order: List[Character] = []
+    seen = {char_id}
+    frontier = list(start.parent_ids) if start is not None else []
+    while frontier:
+        pid = frontier.pop(0)
+        if pid in seen:
+            continue
+        seen.add(pid)
+        parent = _character(world, pid)
+        if parent is None:
+            continue
+        order.append(parent)
+        frontier.extend(p for p in parent.parent_ids if p not in seen)
+    return order
+
+
+def descendants(world: World, char_id: int) -> List[Character]:
+    """Every descendant down the child links, in generational (breadth-first) order."""
+    order: List[Character] = []
+    seen = {char_id}
+    frontier = children_of(world, char_id)
+    while frontier:
+        child = frontier.pop(0)
+        if child.id in seen:
+            continue
+        seen.add(child.id)
+        order.append(child)
+        frontier.extend(children_of(world, child.id))
+    return order
+
+
+def bloodline(world: World, char_id: int) -> List[Character]:
+    """The vertical line through a character: forebears, self, then descendants.
+
+    "Follow a line of kings" — the dynasty a viewer inspects. Ordered eldest
+    ancestor → self → down the descendants; spouses are reachable via each
+    member's ``spouse_id`` but are not themselves the bloodline.
+    """
+    self_char = _character(world, char_id)
+    line = list(reversed(ancestors(world, char_id)))
+    if self_char is not None:
+        line.append(self_char)
+    line.extend(descendants(world, char_id))
+    return line
+
+
+def render_bloodline(world: World, char_id: int) -> str:
+    """A readable, indented rendering of a character's bloodline (dynasty view).
+
+    Headless and deterministic — the chronicle/inspection surface reads this; a
+    richer Qt tree can replace the presentation without touching the query.
+    """
+    root = _character(world, char_id)
+    if root is None:
+        return f"(no such character #{char_id})"
+    lines: List[str] = []
+    for forebear in reversed(ancestors(world, char_id)):
+        lines.append(f"{_kin_label(world, forebear)}")
+    lines.append(f"{_kin_label(world, root)}  ← this line")
+    _append_descendants(world, char_id, depth=1, out=lines)
+    return "\n".join(lines)
+
+
+def _append_descendants(world: World, char_id: int, depth: int, out: List[str]) -> None:
+    for child in children_of(world, char_id):
+        out.append(f"{'  ' * depth}└ {_kin_label(world, child)}")
+        _append_descendants(world, child.id, depth + 1, out)
+
+
+def _kin_label(world: World, char: Character) -> str:
+    """``Name (race, b.YEAR[, †])`` — the one-line identity in a bloodline view."""
+    marks = "" if char.alive else " †"
+    title = f", {char.title}" if char.title else ""
+    return f"{char.name} ({char.race}, b.{char.birth_year}{title}){marks}"
+
+
 # -- seeding --------------------------------------------------------------
 
 # The scenario whose sites anchor the canon roster's home locations. The run

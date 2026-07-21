@@ -55,6 +55,29 @@ class FactionKind(str, Enum):
         return self.value
 
 
+class SuccessionRule(str, Enum):
+    """How a realm chooses the next holder of its ``leader_id`` when the seat
+    falls vacant (build ticket 08). The rule is resolved by the succession phase,
+    not here — this enum is only the tag each faction carries.
+
+    * ``agnatic_primogeniture`` — the eldest descendant, male-preferring, then
+      collateral kin (Rohan, the Dúnedain Chieftains, most realms of Men).
+    * ``stewardship`` — the same bloodline walk, but the office is a stewardship
+      held "until the king returns" (Gondor's Ruling Stewards).
+    * ``dwarf_line_of_durin`` — agnatic within the line of Durin (Durin's Folk).
+    * ``elective`` — no direct heir required; the realm elects its worthiest
+      member when the line has no kin to call on.
+    """
+
+    AGNATIC_PRIMOGENITURE = "agnatic_primogeniture"
+    STEWARDSHIP = "stewardship"
+    DWARF_LINE_OF_DURIN = "dwarf_line_of_durin"
+    ELECTIVE = "elective"
+
+    def __str__(self) -> str:
+        return self.value
+
+
 class Posture(str, Enum):
     """A faction's standing stance, seeded and canon-flavoured.
 
@@ -111,6 +134,7 @@ class Faction(Entity):
     """
 
     faction_kind: str = FactionKind.REALM.value
+    succession_rule: str = SuccessionRule.AGNATIC_PRIMOGENITURE.value
     leader_id: Optional[int] = None
     capital_location_id: Optional[int] = None
     overlord_faction_id: Optional[int] = None
@@ -210,6 +234,7 @@ def add_faction(
     name: str,
     kind: FactionKind,
     *,
+    succession_rule: SuccessionRule = SuccessionRule.AGNATIC_PRIMOGENITURE,
     leader_id: Optional[int] = None,
     capital_location_id: Optional[int] = None,
     overlord_faction_id: Optional[int] = None,
@@ -239,6 +264,11 @@ def add_faction(
         created_year=world.current_year,
         status=status,
         faction_kind=kind.value if isinstance(kind, FactionKind) else kind,
+        succession_rule=(
+            succession_rule.value
+            if isinstance(succession_rule, SuccessionRule)
+            else succession_rule
+        ),
         leader_id=leader_id,
         capital_location_id=capital_location_id,
         overlord_faction_id=overlord_faction_id,
@@ -425,6 +455,7 @@ class _FactionSeed:
 
     name: str
     kind: FactionKind
+    succession_rule: SuccessionRule = SuccessionRule.AGNATIC_PRIMOGENITURE
     leader: Optional[str] = None
     capital: Optional[str] = None
     gateway: Optional[str] = None
@@ -449,7 +480,8 @@ class _FactionSeed:
 # (owner_faction_id = None) — no sentinel faction inflates the map.
 _ROSTER: tuple = (
     _FactionSeed(
-        "Gondor", FactionKind.REALM, leader="Ecthelion II", capital="Minas Tirith",
+        "Gondor", FactionKind.REALM, succession_rule=SuccessionRule.STEWARDSHIP,
+        leader="Ecthelion II", capital="Minas Tirith",
         aggression=45, posture=Posture.DEFENSIVE,
         regions=("Gondor", "Anórien", "Ithilien", "Lebennin", "Belfalas",
                  "Lamedon", "Anfalas", "Emyn Arnen", "Pinnath Gelin", "Druadan Forest"),
@@ -496,7 +528,9 @@ _ROSTER: tuple = (
         disposition=(("Lothlórien", -90), ("Woodland Realm", -80)),
     ),
     _FactionSeed(
-        "Durin's Folk", FactionKind.REALM, leader="Dáin II Ironfoot", capital="Erebor",
+        "Durin's Folk", FactionKind.REALM,
+        succession_rule=SuccessionRule.DWARF_LINE_OF_DURIN,
+        leader="Dáin II Ironfoot", capital="Erebor",
         aggression=45, posture=Posture.DEFENSIVE,
         regions=("Erebor", "Iron Hills"),
         goals=("build", "guard_the_mountain"),
@@ -614,6 +648,7 @@ def seed_factions(
             world,
             name=s.name,
             kind=s.kind,
+            succession_rule=s.succession_rule,
             leader_id=leader.id if leader else None,
             capital_location_id=capital_id,
             aggression=s.aggression,
