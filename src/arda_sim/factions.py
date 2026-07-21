@@ -725,4 +725,5 @@ def seed_world(seed_str: str, canonicity: float = 1.0):
     world = new_seeded_run(seed_str, canonicity=canonicity)
     grid = load_scenario(_ROSTER_SCENARIO_FILE)
     faction_names = seed_factions(world, grid)
+    world.grid = grid  # live handle: lets the succession phase reach territory (ADR-0004)
     return world, grid, faction_names

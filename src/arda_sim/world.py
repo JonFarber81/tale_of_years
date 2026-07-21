@@ -20,6 +20,7 @@ from . import (
 )
 from .entities import Entity, EntityStatus, Event
 from .rng import make_rng
+from .tiles import TileGrid
 
 # The Shire-calendar month names, one per tick within a year — display flavour for
 # the finer-grained clock (12 ticks/year). Purely cosmetic; the sim never reads it.
@@ -74,6 +75,13 @@ class World:
     # The seeded RNG is a live object, not persisted as-is; its getstate() is
     # what serializes. Excluded from equality so two worlds compare on state.
     rng: random.Random = field(default_factory=lambda: random.Random(0), compare=False)
+    # The tile substrate for this run, attached as a *live* handle (like ``rng``):
+    # it is never serialized into the world state — terrain/regions are config and
+    # per-tile ownership persists separately (RLE, ticket 12). Set by the seeding
+    # entry point and re-attached on load, so a phase system can reach territory
+    # through ``world.grid`` without widening the ``system(world, rng)`` signature
+    # (see ADR-0004). ``None`` in headless/skeleton runs that carry no map.
+    grid: Optional[TileGrid] = field(default=None, compare=False, repr=False)
 
     @property
     def current_year(self) -> int:
