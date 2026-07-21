@@ -38,6 +38,20 @@ def test_owner_tint_is_translucent():
     assert 0 < owner_tint(1).alpha() < 255
 
 
+def test_people_sprite_cell_is_distinct_per_people_with_fallback():
+    # The army-sprite map (map-visuals 03) is a pure headless lookup: each of the
+    # five folk maps to its own spritesheet cell, and any unknown/missing value
+    # falls back to a cell of its own.
+    from arda_sim.ui.tile_render import people_sprite_cell
+
+    peoples = ["men", "elves", "dwarves", "orcs", "hobbits"]
+    cells = [people_sprite_cell(p) for p in peoples]
+    assert len(set(cells)) == len(peoples)  # a distinct cell per folk
+    fallback = people_sprite_cell("dragons")
+    assert fallback not in cells  # unknown gets its own fallback cell
+    assert people_sprite_cell(None) == fallback
+
+
 # --- view + inspection: need an offscreen QApplication ----------------------
 
 
@@ -83,6 +97,17 @@ def test_tileset_sprite_sheet_loads(qapp):
     assert tileset_path().is_file()
     sheet = _sheet_pixmap()
     assert not sheet.isNull()  # the bundled Kenney sheet actually decoded
+
+
+def test_character_sprite_sheet_loads(qapp):
+    # The host people sprites (map-visuals 03) draw from a second bundled Kenney
+    # pack — the Characters sheet — so verify it ships and decodes too.
+    from arda_sim.ui.assets import character_tileset_path
+    from arda_sim.ui.tile_render import _char_sheet_pixmap
+
+    assert character_tileset_path().is_file()
+    sheet = _char_sheet_pixmap()
+    assert not sheet.isNull()
 
 
 def test_map_view_lays_scene_out_in_tile_pixels(qapp):
@@ -138,6 +163,57 @@ def test_inspection_describes_clicked_tile(qapp):
         window.close()
 
 
+def test_site_labels_are_tier_gated_on_zoom(qapp):
+    # Labels are screen-fixed annotations, so tier gating (label-declutter,
+    # ticket 02) hides the low-rank ones at far zoom to stop them piling up:
+    # cities are always labelled; ruins only appear once zoomed in close.
+    window = build_window("fellowship")
+    try:
+        m = window._map
+        tier0 = [lbl for lbl, tier in m._site_labels if tier == 0]
+        tier2 = [lbl for lbl, tier in m._site_labels if tier == 2]
+        assert tier0 and tier2  # the shipped grid has both cities and ruins
+
+        m.fit_map()  # far: the whole map fits the viewport
+        assert all(not lbl.isVisible() for lbl in tier0)  # ruins culled when far
+        assert all(lbl.isVisible() for lbl in tier2)  # cities always shown
+
+        m._apply_zoom(10_000)  # close: clamped to the zoom-in cap
+        assert all(lbl.isVisible() for lbl in tier0)  # ruins appear up close
+        assert all(lbl.isVisible() for lbl in tier2)  # cities still shown
+    finally:
+        window.close()
+
+
+def test_site_markers_follow_kind_and_tier_changes(qapp):
+    # Markers are rebuilt from the live grid so they track a site's kind/tier as
+    # construction grows or war razes it (ticket 04). refresh_sites is guarded by
+    # a change-signature, so it is a no-op until a site actually moves.
+    window = build_window("fellowship")
+    try:
+        m = window._map
+        grid = window._grid
+        assert len(m._site_markers) == len(grid.sites)  # one marker per site
+
+        # No change -> the guard skips the rebuild (same item objects reused).
+        before = list(m._site_markers)
+        m.refresh_sites()
+        assert m._site_markers is before or all(
+            a is b for a, b in zip(m._site_markers, before)
+        )
+
+        # Grow a town into a city: the markers rebuild, and the site's label is
+        # re-gated to its new (city) tier.
+        town = next(s for s in grid.sites if s.kind == "town")
+        idx = grid.sites.index(town)
+        grid.set_site(town.id, "city", 2)
+        m.refresh_sites()
+        assert m._site_markers[idx] is not before[idx]  # that marker was redrawn
+        assert m._site_labels[idx][1] == 2  # label now gated as a city
+    finally:
+        window.close()
+
+
 def test_seeded_factions_paint_territory_with_a_frontier(qapp):
     # Real factions (ticket 07) own regions on the shipped map, so several
     # factions hold ground and a derived frontier exists somewhere.
@@ -154,5 +230,83 @@ def test_seeded_factions_paint_territory_with_a_frontier(qapp):
         assert any(
             grid.is_border(c, r) for r in range(grid.height) for c in range(grid.width)
         )
+    finally:
+        window.close()
+
+
+@pytest.mark.parametrize("terrain", [Terrain.MOUNTAIN, Terrain.HILLS, Terrain.MARSH])
+def test_procedural_terrain_is_deterministic_per_tile(qapp, terrain):
+    # The three procedural-fallback terrains (map-visuals 05) seed their per-tile
+    # variation from the tile's (col, row), never a paint-time RNG — so painting
+    # the same tile twice must yield byte-identical images.
+    from PySide6.QtGui import QPainter, QPixmap
+
+    from arda_sim.ui.map_view import TILE
+    from arda_sim.ui.tile_render import paint_terrain_tile
+
+    def render(col, row):
+        pix = QPixmap(TILE, TILE)
+        pix.fill()
+        p = QPainter(pix)
+        paint_terrain_tile(p, terrain, col * TILE, row * TILE, TILE)
+        p.end()
+        return pix.toImage()
+
+    # Same tile, two independent paints -> byte-identical (no RNG at paint time).
+    assert render(3, 7) == render(3, 7)
+    assert render(3, 7).constBits() == render(3, 7).constBits()
+    # The (col, row) seed actually perturbs the motif: a spread of tiles yields
+    # more than one distinct render (not a constant, un-varied stamp).
+    variants = {render(c, r).constBits() for c in range(6) for r in range(6)}
+    assert len(variants) > 1
+
+
+def test_refresh_armies_draws_one_marker_per_living_host(qapp):
+    # A host marker (map-visuals 03) is a colour disc + people sprite per living
+    # army; disbanded hosts draw nothing, and the layer rebuilds wholesale.
+    from arda_sim.armies import Army
+    from arda_sim.entities import EntityStatus
+
+    window = build_window("fellowship")
+    try:
+        armies = [
+            Army(id=90001, kind="army", name="Host A", created_year=2965, faction_id=1, col=2, row=3,
+                 size=500, status=EntityStatus.ACTIVE.value),
+            Army(id=90002, kind="army", name="Host B", created_year=2965, faction_id=5, col=4, row=6,
+                 size=500, status=EntityStatus.ACTIVE.value),
+            Army(id=90003, kind="army", name="Fallen", created_year=2965, faction_id=2, col=1, row=1,
+                 size=0, status=EntityStatus.DEAD.value),
+        ]
+        window._map.refresh_armies(armies)
+        assert len(window._map._army_items) == 2  # only the two living hosts
+        # Redrawing replaces rather than accumulates.
+        window._map.refresh_armies(armies[:1])
+        assert len(window._map._army_items) == 1
+    finally:
+        window.close()
+
+
+def test_marching_host_adds_a_direction_cue(qapp):
+    # A host mid-march (non-empty path) draws its marker plus a direction cue,
+    # so it yields MORE scene items than the same host idle (empty path); an
+    # idle/garrisoned host adds no cue (map-visuals 06).
+    from arda_sim.armies import Army
+    from arda_sim.entities import EntityStatus
+
+    window = build_window("fellowship")
+    try:
+        idle = Army(id=90101, kind="army", name="Garrison", created_year=2965,
+                    faction_id=1, col=5, row=5, size=500,
+                    status=EntityStatus.ACTIVE.value, path=[])
+        window._map.refresh_armies([idle])
+        idle_items = len(window._map._army_items)
+        assert idle_items == 1  # marker only, no cue
+
+        marching = Army(id=90101, kind="army", name="Garrison", created_year=2965,
+                        faction_id=1, col=5, row=5, size=500,
+                        status=EntityStatus.ACTIVE.value, path=[[6, 5], [7, 5]])
+        window._map.refresh_armies([marching])
+        assert len(window._map._army_items) > idle_items  # marker + cue
+        assert len(window._map._army_items) == idle_items + 1  # exactly one cue
     finally:
         window.close()
