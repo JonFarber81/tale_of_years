@@ -26,6 +26,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Mapping, Optional, Sequence
 
+from .armies import (
+    ARMY_ARRIVED_EVENT,
+    ARMY_DISBANDED_EVENT,
+    ARMY_MUSTERED_EVENT,
+)
 from .characters import BIRTH_EVENT, DEATH_EVENT, DEPARTED_EVENT
 from .diplomacy import (
     MARRIAGE_EVENT,
@@ -82,6 +87,12 @@ BASE_WEIGHT: Dict[str, int] = {
     MARRIAGE_EVENT: 45,
     TREATY_EVENT: 40,
     PROVIDER_PACT_EVENT: 35,
+    # Armies & movement (ticket 10): a host taking the field and reaching its
+    # objective are campaign-shaping; a host melting away on the march is graver
+    # still. All sit above the important-only cutoff so campaigns read in the feed.
+    ARMY_MUSTERED_EVENT: 35,
+    ARMY_ARRIVED_EVENT: 40,
+    ARMY_DISBANDED_EVENT: 45,
     _HEARTBEAT_EVENT: 0,  # the placeholder tick is never important
 }
 
@@ -402,6 +413,42 @@ def _render_war_declared(ctx: _RenderContext, event: Event) -> str:
     return template.format(a=a, b=b)
 
 
+def _render_army_mustered(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    faction = ctx.name(subjects[1]) if len(subjects) >= 2 else "a power"
+    payload = event.payload or {}
+    place = ctx.place(event.location_id)
+    at = f" at {place}" if place else ""
+    leader = ctx.name(subjects[2]) if len(subjects) >= 3 else None
+    under = f" under {leader}" if leader else ""
+    target_id = payload.get("target_faction_id")
+    if target_id:
+        return f"{faction} mustered a host{at}{under} and marched against {ctx.name(target_id)}."
+    return f"{faction} mustered a host{at}{under}."
+
+
+def _render_army_arrived(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    faction = ctx.name(subjects[1]) if len(subjects) >= 2 else "a host"
+    place = ctx.place(event.location_id)
+    at = f" before {place}" if place else ""
+    return f"The host of {faction} came{at}."
+
+
+def _render_army_disbanded(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    faction = ctx.name(subjects[1]) if len(subjects) >= 2 else "a host"
+    template = _pick(
+        (
+            "The host of {faction} melted away on the march, its strength spent.",
+            "Worn down by the long road, the host of {faction} broke up and was no more.",
+        ),
+        event,
+        salt=13,
+    )
+    return template.format(faction=faction)
+
+
 def _render_war_ended(ctx: _RenderContext, event: Event) -> str:
     subjects = event.subject_ids
     a = ctx.name(subjects[0]) if subjects else "a realm"
@@ -434,6 +481,9 @@ _RENDERERS: Dict[str, Callable[[_RenderContext, Event], str]] = {
     PROVIDER_PACT_EVENT: _render_provider_pact,
     WAR_DECLARED_EVENT: _render_war_declared,
     WAR_ENDED_EVENT: _render_war_ended,
+    ARMY_MUSTERED_EVENT: _render_army_mustered,
+    ARMY_ARRIVED_EVENT: _render_army_arrived,
+    ARMY_DISBANDED_EVENT: _render_army_disbanded,
 }
 
 

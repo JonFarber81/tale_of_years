@@ -195,6 +195,25 @@ def test_inspecting_a_realm_shows_its_diplomacy_block(qapp):
         window.close()
 
 
+def test_marching_hosts_render_and_are_inspectable(qapp):
+    # Playing the seeded app raises hosts that march across the map; the map
+    # layer draws them and clicking a host's tile inspects it (ticket 10).
+    window = build_window("campaign")  # roster + factions seeded
+    try:
+        for snap, evs in window._playback.fast_forward_to(12 * TICKS_PER_YEAR):
+            window._on_frontier_changed(window._playback.frontier)
+            window._on_tick_advanced(snap, evs)
+        hosts = window._armies_in(window._latest_snapshot)
+        assert hosts  # at least one host is afield
+        # the map drew a marker per living host
+        assert len(window._map._army_items) == len(hosts)
+        host = hosts[0]
+        text = window.describe_tile(host.col, host.row)
+        assert host.name in text and "Strength:" in text and "Destination:" in text
+    finally:
+        window.close()
+
+
 def test_above_threshold_located_events_fire_a_map_pulse(qapp):
     window = build_window("fellowship")
     pulsed = []

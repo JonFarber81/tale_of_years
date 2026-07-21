@@ -55,3 +55,33 @@ downward pressure that rubbing borders exert.
 **Betrayal** — declaring war on a faction one currently holds a treaty (or
 vassalage bond) with; it tears up the pact and sours disposition far harder than
 an ordinary declaration.
+
+## Armies & movement
+
+**Host (Army)** — a body of troops a faction raises. It stands on a single map
+*tile* and carries an integer `size`, a general, and (while marching) the
+remaining tile path to its objective. A faction fields at most one standing host
+at a time.
+
+**Muster** — raising a host at a faction's seat when it chooses force (the phase-2
+`muster`/`attack` intent). Its `size` is a pure function of the faction's
+territory-derived `military_strength` (deterministic, no RNG); its general is the
+ablest field-eligible member (highest `martial`+`leadership`) — the ruler stays
+home.
+
+**March** — a host advancing tile→tile along a deterministic least-cost path
+(Dijkstra over terrain move-cost; roads cheap, rough ground dear), spending an
+integer per-tick movement budget derived from its **miles/year** pace. Position is
+tile coords, not a route — the two-layer route model was superseded (ADR-0001).
+
+**Attrition** — the integer strength a marching host loses each tick to harsh
+ground (barren/marsh/mountain) and to being off friendly soil (its own, an ally's,
+its liege's, or a vassal's). The off-friendly toll *deepens with distance from a
+friendly seat*, tracked as the run of ticks since the host last stood on home
+ground (**supply lag**, capped) — a host driven deep bleeds harder. A host bled to
+nothing **disbands**. Supply is this lightweight decay, not a logistics model, and
+is never applied to a host in garrison.
+
+**Objective** — the seat a mustered host marches on: a war enemy, else the
+most-hated seated realm (providers, holding no ground, are never objectives). On
+arrival the host garrisons; the fighting itself is the war phase's (ticket 11).

@@ -15,17 +15,19 @@ emits :attr:`tileClicked` so the window can inspect that tile.
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Iterable, List, Optional
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QVariantAnimation, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
+    QGraphicsItem,
     QGraphicsPixmapItem,
     QGraphicsScene,
     QGraphicsView,
 )
 
+from ..armies import Army
 from ..tiles import UNOWNED, TileGrid
 from . import tile_render
 
@@ -63,6 +65,8 @@ class MapView(QGraphicsView):
         self._owner_item.setZValue(1)
         self._add_sites()
         self.refresh_owners()
+        # Army markers, rebuilt each tick from the snapshot's hosts (ticket 10).
+        self._army_items: List[QGraphicsItem] = []
 
         self.setDragMode(QGraphicsView.ScrollHandDrag)  # left-drag to pan
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
@@ -110,6 +114,33 @@ class MapView(QGraphicsView):
                     painter.setPen(Qt.NoPen)
         painter.end()
         self._owner_item.setPixmap(pixmap)
+
+    def refresh_armies(self, armies: Iterable[Army]) -> None:
+        """Redraw the host markers for the current tick from the snapshot's armies.
+
+        Each living host is a faction-coloured disc on its tile, so the viewer can
+        follow campaigns marching across the map. Cheap to rebuild wholesale —
+        there are only a handful of hosts afield at once.
+        """
+        for item in self._army_items:
+            self._scene.removeItem(item)
+        self._army_items = []
+        for army in armies:
+            if not army.alive:
+                continue
+            cx = army.col * TILE + TILE / 2
+            cy = army.row * TILE + TILE / 2
+            color = tile_render.faction_color(army.faction_id or UNOWNED)
+            marker = self._scene.addEllipse(
+                cx - TILE * 0.34,
+                cy - TILE * 0.34,
+                TILE * 0.68,
+                TILE * 0.68,
+                QPen(QColor(20, 20, 20), 2),
+                color,
+            )
+            marker.setZValue(4)  # above sites, below salience pulses
+            self._army_items.append(marker)
 
     def _add_sites(self) -> None:
         """Draw a marker + haloed label for each authored site."""
