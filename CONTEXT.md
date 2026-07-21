@@ -64,16 +64,43 @@ an ordinary declaration.
 
 ## Armies & movement
 
-**Host (Army)** — a body of troops a faction raises. It stands on a single map
-*tile* and carries an integer `size`, a general, and (while marching) the
-remaining tile path to its objective. A faction fields at most one standing host
-at a time.
+**Host (Army)** — a body of troops raised by a **coalition** (a lead faction and any
+co-belligerents who Gather with it). It stands on a single map *tile* and carries an
+integer `size` (summed across its contributors), a general, and (while marching) the
+remaining tile path to its objective. A coalition fields one host; each contributor
+lends at most one levy at a time.
 
-**Muster** — raising a host at a faction's seat when it chooses force (the phase-2
-`muster`/`attack` intent). Its `size` is a pure function of the faction's
-territory-derived `military_strength` (deterministic, no RNG); its general is the
-ablest field-eligible member (highest `martial`+`leadership`) — the ruler stays
-home.
+**Muster** — raising a host as a rare, heavy **war-effort**, not an annual levy. A
+faction musters only while genuinely **at war** (the at-war flag, not mere hostility)
+and only past a **cooldown** since its last host left play — a size-scaled rest, so a
+great hosting depletes the realm's manpower for longer. A host's `size` is a
+deterministic (no-RNG) function of its contributors' `military_strength`; its general
+comes down the **leader ladder** (the ruler stays home).
+
+**Coalition host** — the single combined host a **Gathering** produces: owned by the
+lead faction, summing the strength-derived levy of every contributor (the lead plus
+its treaty-allies, vassals, or overlord that share the *same* war), led by the ablest
+eligible leader across the whole coalition, and marching at the lead's **pace**.
+
+**Gathering / muster point** — the act of a coalition's belligerents combining their
+levies into one host at the lead faction's seat (the muster point). Each contributor
+is still gated by its own at-war state and cooldown; an unbound third party at war
+with the same enemy fields its own host rather than joining.
+
+**Leader ladder** — how a host is always given a general: the ablest field-eligible
+**non-heir** across the coalition → failing that, the **heir** (who may then die in
+battle, seating the next heir) → failing even that, a **generated captain**. A
+leaderless host does not occur.
+
+**Generated captain** — a named field officer synthesised to lead a host when no
+existing character is eligible: a non-dynastic character (no kin, outside the
+succession line) with generated `martial`/`leadership`, seated as a general. Over a
+long history this grows a distinct sub-population of captains.
+
+**March pace** — a faction's marching speed in **miles/year**, authored per faction
+and otherwise defaulting by **people** (mounted realms fastest, Elves lithe, Men the
+mid reference, Orc-hosts their own profile, Dwarves slower). Replaces the single
+global rate; a coalition marches at its lead's pace.
 
 **March** — a host advancing tile→tile along a deterministic least-cost path
 (Dijkstra over terrain move-cost; roads cheap, rough ground dear), spending an
@@ -88,8 +115,8 @@ ground (**supply lag**, capped) — a host driven deep bleeds harder. A host ble
 nothing **disbands**. Supply is this lightweight decay, not a logistics model, and
 is never applied to a host in garrison.
 
-**Objective** — the seat a mustered host marches on: a war enemy, else the
-most-hated seated realm (providers, holding no ground, are never objectives). On
+**Objective** — the seat a mustered host marches on: a **war enemy** (providers,
+holding no ground, are never objectives; mere hostility no longer raises a host). On
 arrival the host garrisons; the fighting itself is the war phase's (ticket 11).
 
 ## War & battles
@@ -101,13 +128,23 @@ corsair raids. Only factions the diplomacy phase has flagged **at-war** fight
 integer/fixed-point, and **canonicity never touches the battle dice** — it
 weights only who musters and who attacks (phase 2), never who wins.
 
-**Field battle** — a clash between two at-war hosts sharing a tile or standing on
-adjacent tiles. Each side's **effective strength** = `size × leader × provider ×`
-(for the defender) `terrain/posture` modifiers, all integer permille; **one
-bounded seeded roll** tilts the ratio both ways at once, so the stronger host
+**Field battle** — a clash between two at-war hosts **sharing a tile** (adjacency no
+longer triggers a fight — battles concentrate where hosts actually meet, so the few
+that fire are the decisive ones). Each side's **effective strength** = `size × leader
+× provider ×` (for the defender) `terrain/posture` modifiers, all integer permille;
+**one bounded seeded roll** tilts the ratio both ways at once, so the stronger host
 usually wins, an even fight is a coin toss, and a moderate edge can still be
-overturned. The loser takes the heavier casualties and retreats toward home, or
-is **destroyed** if too few remain.
+overturned. The loser takes the heavier casualties and retreats toward home, or is
+**destroyed** if it is shattered — cut below a fraction of the strength it **mustered**
+with (proportional, so one key battle can end a war), not a flat absolute floor.
+
+**Giving vs. refusing battle (evasion)** — before a shared-tile clash, an outmatched
+**defender** (the pursuer more than ~1.5× its effective strength) may try to slip away
+rather than fight. Evasion is a **seeded, can-fail** contest — raised by the evader's
+pace and its general's `leadership`+`guile`, lowered by the pursuer's strength edge:
+success withdraws it a tile toward home with no battle; failure leaves it **caught**
+and fighting at a disorder penalty. A host defending its own seat (besieged) or with
+no path home cannot evade, and an aggressor pressing its objective never does.
 
 **Siege** — a host standing on an at-war enemy's fortified **capital seat** invests
 it. A siege is a *multi-tick* state: `Army.siege_progress` accumulates each tick

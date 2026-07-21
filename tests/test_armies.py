@@ -390,7 +390,7 @@ def test_a_generated_captain_is_deterministic():
     def cap_traits(seed):
         w = World.new_run(seed)
         f = add_faction(w, "F", FactionKind.REALM, capital_location_id=1)
-        return army_mod._generate_captain(w, f).traits
+        return army_mod.generate_captain(w, f).traits
     assert cap_traits("gcap") == cap_traits("gcap")  # same run → same captain
 
 
