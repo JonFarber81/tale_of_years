@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from .. import START_YEAR
 from ..chronicle import pulse_events
 from ..entities import Event
+from ..factions import Faction
 from ..playback import Playback
 from ..snapshot import Snapshot
 from ..tiles import UNOWNED, TileGrid
@@ -58,6 +59,11 @@ class MainWindow(QMainWindow):
         self._playback = playback
         self._grid = grid
         self._faction_names = faction_names or {}
+        # Latest renderable state + the accumulated event stream, so tile/faction
+        # inspection reads from snapshots and the feed, never the live world.
+        self._latest_snapshot: Optional[Snapshot] = None
+        self._events: List[Event] = []
+        self._display_year = START_YEAR - 1
         self._syncing_slider = False
         # The frontier as last reported by the worker (never read cross-thread
         # from the worker-owned Playback). Nothing simulated yet.
@@ -151,8 +157,11 @@ class MainWindow(QMainWindow):
     # -- worker -> UI ----------------------------------------------------
 
     def _on_year_advanced(self, snapshot: Snapshot, events: List[Event]) -> None:
+        self._latest_snapshot = snapshot
+        self._display_year = snapshot.year
         if events:  # a live advance; a scrub-restore carries none
             self._annals_model.append_events(events)
+            self._events.extend(events)
             self._fire_pulses(events)
         year = snapshot.year
         self._year_label.setText(f"TA {year}")
@@ -186,7 +195,11 @@ class MainWindow(QMainWindow):
         self._inspection_label.setText(self.describe_tile(col, row))
 
     def describe_tile(self, col: int, row: int) -> str:
-        """Human-readable summary of a tile for the inspection dock."""
+        """Human-readable summary of a tile for the inspection dock.
+
+        An owned tile appends its owning faction's dossier (state + recent
+        events), so clicking anywhere in a realm inspects the power that holds it.
+        """
         grid = self._grid
         terrain = grid.terrain_at(col, row)
         owner = grid.owner_at(col, row)
@@ -205,6 +218,42 @@ class MainWindow(QMainWindow):
         for site in grid.sites:
             if site.col == col and site.row == row:
                 lines.append(f"Site: {site.name} ({site.kind})")
+        if owner != UNOWNED:
+            faction = self._faction(owner)
+            if faction is not None:
+                lines.append("")
+                lines.append(self.describe_faction(faction))
+        return "\n".join(lines)
+
+    def _faction(self, faction_id: int) -> Optional[Faction]:
+        """The faction record as of the displayed year (from the snapshot)."""
+        if self._latest_snapshot is None:
+            return None
+        entity = self._latest_snapshot.entity(faction_id)
+        return entity if isinstance(entity, Faction) else None
+
+    def describe_faction(self, faction: Faction) -> str:
+        """A faction dossier for the inspection dock: state, then recent events."""
+        leader = None
+        if faction.leader_id is not None and self._latest_snapshot is not None:
+            leader = self._latest_snapshot.entity(faction.leader_id)
+        intent = faction.current_intent.get("intent", "—")
+        lines = [
+            f"── {faction.name} ({faction.faction_kind}) ──",
+            f"Leader: {leader.name if leader else '—'}",
+            f"Posture: {faction.posture}   Aggression: {faction.aggression}",
+            f"Strength: {faction.military_strength}   Treasury: {faction.treasury}",
+            f"Prominence: {faction.prominence}   Latest intent: {intent}",
+        ]
+        recent = [
+            ev
+            for ev in self._events
+            if faction.id in ev.subject_ids and ev.year <= self._display_year
+        ][-5:]
+        if recent:
+            lines.append("Recent events:")
+            for ev in recent:
+                lines.append(f"  TA {ev.year}: {ev.text or ev.type}")
         return "\n".join(lines)
 
     # -- UI -> worker ----------------------------------------------------

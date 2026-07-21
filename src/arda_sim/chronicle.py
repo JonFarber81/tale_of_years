@@ -28,6 +28,7 @@ from typing import Callable, Dict, List, Mapping, Optional, Sequence
 
 from .characters import BIRTH_EVENT, DEATH_EVENT, DEPARTED_EVENT
 from .entities import Event
+from .factions import FACTION_INTENT_EVENT
 from .world import World
 
 # The heartbeat's type string (mirrors ``pipeline.HEARTBEAT_EVENT_TYPE``, kept
@@ -54,6 +55,10 @@ BASE_WEIGHT: Dict[str, int] = {
     BIRTH_EVENT: 20,
     DEATH_EVENT: 40,
     DEPARTED_EVENT: 55,
+    # A faction's yearly intent is deliberately low: one fires for every power
+    # every year, so it stays below the important-only cutoff and out of the
+    # default feed, surfacing only under "show all" and on faction inspection.
+    FACTION_INTENT_EVENT: 6,
     _HEARTBEAT_EVENT: 0,  # the placeholder tick is never important
 }
 
@@ -217,6 +222,27 @@ def _render_departed(ctx: _RenderContext, event: Event) -> str:
     return template.format(name=name)
 
 
+# Phase-2 intent verbs → a chronicle phrasing. Keeps the low-salience faction
+# turn readable under "show all" without leaking the internal enum name.
+_INTENT_PHRASING: Dict[str, str] = {
+    "muster": "called up its levies",
+    "attack": "made ready for war",
+    "fortify": "looked to its defences",
+    "seek_pact": "sought new alliances",
+    "build": "turned to building and husbandry",
+}
+
+
+def _render_faction_intent(ctx: _RenderContext, event: Event) -> str:
+    name = ctx.name(event.subject_ids[0]) if event.subject_ids else "a power"
+    payload = event.payload or {}
+    verb = _INTENT_PHRASING.get(payload.get("intent"), "took counsel")
+    target_id = payload.get("target_faction_id")
+    if target_id:
+        return f"{name} made ready for war against {ctx.name(target_id)}."
+    return f"{name} {verb}."
+
+
 # The per-type renderer registry. A type with no renderer yields no prose (the
 # feed shows a structured placeholder for it) — this is where later tickets
 # register their templates.
@@ -224,6 +250,7 @@ _RENDERERS: Dict[str, Callable[[_RenderContext, Event], str]] = {
     BIRTH_EVENT: _render_birth,
     DEATH_EVENT: _render_death,
     DEPARTED_EVENT: _render_departed,
+    FACTION_INTENT_EVENT: _render_faction_intent,
 }
 
 
