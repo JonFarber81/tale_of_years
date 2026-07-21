@@ -119,6 +119,7 @@
   "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~..................=..............................................."
  ],
  "region_legend": {
+  "5": "Nan Curunír",
   "X": "Forlindon",
   "b": "Harlindon",
   "h": "Lindon",
@@ -229,9 +230,9 @@
   "......................kkkkkkkkkkkkkkkkR.RRRRRMMMMMMMMMMMMM0WWWWWWWwwww...QGGGGGGGGGGGGGIIIIIyyZZZZZZttttttttt........ttttttttttttt..",
   ".......................kkkkkkkkkkkkkkRR.RRRRRRMMMMMMMMMMMM00WWWWWWw...www..GGGGGGGGGGIIIIIIyyyZZZZZZntttttttttttt.ttttttttttttttt...",
   "........................kkkkkkkkkkkkRRR.RRRRRRMMMMMMMMMMM0000WWW...wwwwwO...GGGGGGGGIIIIIIyyyZZZZZZZnniiiittttttttttttttttttttttt...",
-  ".........................kkkkkkkkkkRRR.RRRRRRRMMMMMMMMMMM00000WWWWWwwwOO.....GGGGGIIIIIIIyyyyZZZZZZnnniiiiiiiiiiittttttttttttttt....",
-  "...........................kkkkkkkRRR.RRRRRRRRRMMMMMMMMMM000000WWWWwOOOOO...QQGGGIIIIIIIyyyyZZZZZZZnnniiiiiiiiiiiiiiiiitttttttt.....",
-  "............................kkkkkRRRR.RRRRRRRRRMMMMMMMMMM000.000uuuOOOOOOQ..QQQIIIIIIIIyyyyZZZZZZZnnnniiiiiiiiiiiiiiiiiiiiiiit......",
+  ".........................kkkkkkkkkkRRR.RRRRRRRMMMMMMMMMMM55500WWWWWwwwOO.....GGGGGIIIIIIIyyyyZZZZZZnnniiiiiiiiiiittttttttttttttt....",
+  "...........................kkkkkkkRRR.RRRRRRRRRMMMMMMMMMM555000WWWWwOOOOO...QQGGGIIIIIIIyyyyZZZZZZZnnniiiiiiiiiiiiiiiiitttttttt.....",
+  "............................kkkkkRRRR.RRRRRRRRRMMMMMMMMMM555.000uuuOOOOOOQ..QQQIIIIIIIIyyyyZZZZZZZnnnniiiiiiiiiiiiiiiiiiiiiiit......",
   ".............................kkkRRRR.RRRRRRRRRLLMMMMMMMMM..0000uuuuuOOO.....QQQIIIIIIIyyyyyZZZZZZZnnnniiiiiiiiiiiiiiiiiiiiiiii......",
   "..............................RRRRR.RRRRRRRRRRLLLMMMMM...00000uuuuuuO..ODDDQ.QIIIIIIIyyyyyZZZZZZZnnnnniiiiiiiiiiiiiiiiiiiiiiiii.....",
   "...............................RRRRRRRRRRRRRRLLLLL....MM000000uuuuu111DDDDDD..IIIIIIyyyyyyZZZZZZZnnnnniiiiiiiiiiiiiiiiiiiiiiiii.....",
