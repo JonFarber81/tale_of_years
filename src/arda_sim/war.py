@@ -270,11 +270,11 @@ def _attempt_evasion(
     d_eff = _effective_strength(world, grid, defender, defending=True)
     if a_eff * 100 <= d_eff * _EVASION_THRESHOLD:  # not outmatched enough to flee
         return "stand"
-    retreat = _retreat_step(world, grid, defender)
+    retreat = _retreat_path(world, grid, defender)
     if retreat is None:  # defending its seat, or nowhere to run — it must give battle
         return "stand"
     if rng.randrange(100) < _evasion_odds(world, attacker, defender, a_eff, d_eff):
-        _withdraw_to(world, defender, retreat)
+        _withdraw_along(defender, retreat)
         return "escaped"
     return "caught"
 
@@ -299,9 +299,11 @@ def _evasion_odds(
     return max(_EVASION_ODDS_MIN, min(_EVASION_ODDS_MAX, odds))
 
 
-def _retreat_step(world: World, grid: TileGrid, army: Army) -> Optional[Tuple[int, int]]:
-    """The first tile of the path home for a host that would flee, or ``None`` when
-    it cannot evade — it stands on its own capital seat (besieged) or has no path home."""
+def _retreat_path(world: World, grid: TileGrid, army: Army) -> Optional[List[List[int]]]:
+    """The full tile path home for a host that would flee, or ``None`` when it cannot
+    evade — it stands on its own capital seat (besieged) or has no path home. Computed
+    once here and consumed by :func:`_withdraw_along`, so the flight prices its route
+    a single time."""
     faction = _faction(world, army.faction_id)
     if faction is None:
         return None
@@ -309,22 +311,18 @@ def _retreat_step(world: World, grid: TileGrid, army: Army) -> Optional[Tuple[in
     if home is None or (army.col, army.row) == home:  # no seat, or defending it
         return None
     path = find_path(grid, (army.col, army.row), home)
-    if not path:
-        return None
-    return (path[0][0], path[0][1])
+    return path or None
 
 
-def _withdraw_to(world: World, army: Army, tile: Tuple[int, int]) -> None:
-    """Step a fleeing host one tile toward home and set it marching the rest of the
-    way (path reassigned fresh — snapshot-safe), abandoning any objective/siege."""
-    grid = world.grid
-    army.col, army.row = tile
+def _withdraw_along(army: Army, path: List[List[int]]) -> None:
+    """Step a fleeing host one tile down its (already-computed) path home and set it
+    marching the rest of the way — path reassigned fresh (snapshot-safe), abandoning
+    any objective/siege."""
+    army.col, army.row = path[0][0], path[0][1]
+    army.path = [list(tile) for tile in path[1:]]
     army.target_faction_id = None
     army.dest_site_id = None
     army.siege_progress = 0
-    faction = _faction(world, army.faction_id)
-    home = _site_tile(grid, faction.capital_location_id) if faction is not None else None
-    army.path = find_path(grid, (army.col, army.row), home) if (grid is not None and home) else []
 
 
 def _evasion_event(world: World, attacker: Army, defender: Army) -> Event:
