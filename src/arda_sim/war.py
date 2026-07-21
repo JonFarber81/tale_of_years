@@ -547,7 +547,7 @@ def _spawn_provider_host(
         prominence=provider.prominence,
     )
     world.entities[army.id] = army
-    payload: Dict[str, object] = {"size": size, "faction_id": provider.id}
+    payload: Dict[str, object] = {"size": size, "faction_id": provider.id, "led": False}
     if army.target_faction_id is not None:
         payload["target_faction_id"] = army.target_faction_id
     return world.new_event(
