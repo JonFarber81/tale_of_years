@@ -17,6 +17,7 @@ from typing import Callable, List, Tuple
 
 from . import TICKS_PER_YEAR
 
+from .armies import movement as _movement  # phase 4
 from .characters import aging_births_deaths as _aging_births_deaths  # phase 1
 from .chronicle import finalize_event
 from .diplomacy import diplomacy as _diplomacy  # phase 3
@@ -29,10 +30,6 @@ System = Callable[[World, random.Random], List[Event]]
 
 # Placeholder event type emitted once per tick until systems produce real events.
 HEARTBEAT_EVENT_TYPE = "tick"
-
-
-def _movement(world: World, rng: random.Random) -> List[Event]:  # phase 4
-    return []
 
 
 def _war(world: World, rng: random.Random) -> List[Event]:  # phase 5

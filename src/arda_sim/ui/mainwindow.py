@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import START_YEAR
+from ..armies import Army
 from ..characters import Character, render_bloodline
 from ..diplomacy import NEUTRALITY, stance
 from ..chronicle import pulse_events
@@ -170,6 +171,7 @@ class MainWindow(QMainWindow):
             self._annals_model.append_events(events)
             self._events.extend(events)
             self._fire_pulses(events)
+        self._map.refresh_armies(self._armies_in(snapshot))
         self._year_label.setText(format_tick(snapshot.tick))
         # Cap the annals (which are year-grained) when scrubbed behind the
         # frontier; live ticks are >= it. Restoring an earlier tick shows that
@@ -228,6 +230,10 @@ class MainWindow(QMainWindow):
         for site in grid.sites:
             if site.col == col and site.row == row:
                 lines.append(f"Site: {site.name} ({site.kind})")
+        host = self._army_on(col, row)
+        if host is not None:
+            lines.append("")
+            lines.append(self.describe_army(host))
         if owner != UNOWNED:
             faction = self._faction(owner)
             if faction is not None:
@@ -241,6 +247,45 @@ class MainWindow(QMainWindow):
             return None
         entity = self._latest_snapshot.entity(faction_id)
         return entity if isinstance(entity, Faction) else None
+
+    def _armies_in(self, snapshot: Snapshot) -> List[Army]:
+        """The living hosts in a snapshot, in id order (for the map layer)."""
+        return [
+            e
+            for _id, e in sorted(snapshot.entities.items())
+            if isinstance(e, Army) and e.alive
+        ]
+
+    def _army_on(self, col: int, row: int) -> Optional[Army]:
+        """The lowest-id living host standing on a tile in the current snapshot."""
+        if self._latest_snapshot is None:
+            return None
+        for army in self._armies_in(self._latest_snapshot):
+            if army.col == col and army.row == row:
+                return army
+        return None
+
+    def describe_army(self, army: Army) -> str:
+        """A host dossier for the inspection dock: leader, size, destination."""
+        leader = None
+        if army.leader_id is not None and self._latest_snapshot is not None:
+            leader = self._latest_snapshot.entity(army.leader_id)
+        faction = self._faction(army.faction_id) if army.faction_id else None
+        faction_name = faction.name if faction is not None else "—"
+        if army.dest_site_id is not None:
+            dest_site = self._grid.site_by_id(army.dest_site_id)
+            destination = dest_site.name if dest_site is not None else "the field"
+        else:
+            destination = "holding (in garrison)"
+        return "\n".join(
+            [
+                f"── {army.name} ──",
+                f"Faction: {faction_name}",
+                f"Leader: {leader.name if leader else '— (leaderless)'}",
+                f"Strength: {army.size}",
+                f"Destination: {destination}",
+            ]
+        )
 
     def describe_faction(self, faction: Faction) -> str:
         """A faction dossier for the inspection dock: state, then recent events."""

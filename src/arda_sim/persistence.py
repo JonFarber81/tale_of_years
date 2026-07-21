@@ -15,6 +15,7 @@ from dataclasses import asdict
 from typing import Any, Dict
 
 from . import RNG_FAMILY, SCHEMA_VERSION, START_YEAR, TICKS_PER_YEAR, __version__
+from . import armies as _armies  # noqa: F401  (registers the Army type)
 from . import characters as _characters  # noqa: F401  (registers the Character type)
 from . import factions as _factions  # noqa: F401  (registers the Faction type)
 from .entities import Event, entity_from_dict
