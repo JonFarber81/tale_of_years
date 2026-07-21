@@ -25,6 +25,8 @@ Two consequences worth recording:
   "inheritance = phase 1 / capture = phase 5" seams are satisfied by *reading* the
   state those phases leave, not by splitting the Ring's logic across them.
 
-Terminal fates (a claimant unmade into a wraith, Sauron drawn to reclaim the Ring,
-its destruction at Mount Doom) are deliberately **out of scope** and left stubbed
-for ticket 14 — a non-Sauron claim here is a transient high-corruption event.
+Terminal fates were deliberately out of scope here and left stubbed for ticket 14;
+they have since landed with issue #5 (see ADR-0010): destruction at active
+Orodruin, Sauron reclaiming, and the lying-lost holding pattern all resolve in
+the Ring phase, keeping the record single-writer. A non-Sauron claim remains a
+transient high-corruption event.

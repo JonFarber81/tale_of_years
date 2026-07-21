@@ -19,6 +19,7 @@ from . import armies as _armies  # noqa: F401  (registers the Army type)
 from . import characters as _characters  # noqa: F401  (registers the Character type)
 from . import factions as _factions  # noqa: F401  (registers the Faction type)
 from . import ring as _ring  # noqa: F401  (registers the Ring type)
+from . import sauron as _sauron  # noqa: F401  (registers the Hunt type)
 from .entities import Event, entity_from_dict
 from .rng import state_from_jsonable, state_to_jsonable
 from .scenarios import load_scenario_for_id
@@ -57,12 +58,23 @@ def _migrate_v2_to_v3(data: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
+def _migrate_v3_to_v4(data: Dict[str, Any]) -> Dict[str, Any]:
+    """v4 persists the world-transition flags (the Ring's terminal outcomes).
+
+    A v3 save predates every terminal, so it rehydrates with no flags raised.
+    """
+    data["state"].setdefault("flags", {})
+    data["provenance"]["schema_version"] = 4
+    return data
+
+
 # Ordered chain of migration functions, indexed by the schema version they
 # upgrade *from*. Grows as the schema evolves so old saves keep loading. Each
 # entry: (from_version) -> callable(save_dict) -> save_dict.
 _MIGRATIONS: Dict[int, Any] = {
     1: _migrate_v1_to_v2,
     2: _migrate_v2_to_v3,
+    3: _migrate_v3_to_v4,
 }
 
 
@@ -92,6 +104,7 @@ def to_dict(world: World) -> Dict[str, Any]:
         "state": {
             "tick": world.tick,
             "id_counter": world.id_counter,
+            "flags": dict(world.flags),
             "entities": [asdict(e) for e in _sorted_entities(world)],
             "events": [asdict(ev) for ev in world.events],
             "rng_state": state_to_jsonable(world.rng.getstate()),
@@ -149,6 +162,7 @@ def from_dict(data: Dict[str, Any]) -> World:
         config=config,
         tick=state["tick"],
         id_counter=state["id_counter"],
+        flags=dict(state.get("flags", {})),
     )
     for e in state["entities"]:
         entity = entity_from_dict(e)

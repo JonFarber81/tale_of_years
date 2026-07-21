@@ -14,8 +14,11 @@ seeded roll fired from the phase that owns it. It carries two integer scalars:
 ``corruption`` (per-bearer, trait-modulated, grows while borne and **attenuates —
 never resets** on transfer) and ``pull`` (global, spikes on use and decays). Low
 corruption prolongs its bearer; high corruption may move them to *claim* it — a
-transient high-corruption event here (terminal fates — Sauron reclaiming, a bearer
-unmade into a wraith — are ticket 14's, deliberately stubbed).
+transient high-corruption flare unless the claimant is the Dark Lord. The
+**terminal outcomes** (issue #5) resolve here too: *destroyed* (an errand reaching
+active Orodruin — Ring tombstoned, the Nine unmade, Sauron broken), *Sauron
+reclaims* (the Ring delivered to the Dark Lord's hand), and the soft *lying lost*
+holding pattern; each raises a flag in ``World.flags``.
 
 Determinism: like every system this is reproducible from persisted state, but the
 Ring draws from its **own per-tick RNG derived from ``(seed_str, tick)``** rather
@@ -32,8 +35,16 @@ from enum import Enum
 from typing import Dict, List, Optional
 
 from .armies import find_path, step_along_path
-from .characters import Character, Race, Role, ancestors, characters, children_of
-from .entities import Entity, Event, register_entity_type
+from .characters import (
+    DARK_LORD_TITLE,
+    Character,
+    Race,
+    Role,
+    ancestors,
+    characters,
+    children_of,
+)
+from .entities import Entity, EntityStatus, Event, register_entity_type
 from .rng import make_rng
 from .tiles import TileGrid
 from .world import World
@@ -41,7 +52,15 @@ from .world import World
 # Event types this phase emits.
 RING_MOVED_EVENT = "ring_moved"  # the Ring advanced a tick along an errand
 RING_TRANSFERRED_EVENT = "ring_transferred"  # it changed hands / was dropped / found
-RING_CLAIMED_EVENT = "ring_claimed"  # a bearer, deep in corruption, claimed it (transient)
+RING_CLAIMED_EVENT = "ring_claimed"  # a bearer, deep in corruption, claimed it
+RING_DESTROYED_EVENT = "ring_destroyed"  # cast into the Fire — a terminal outcome
+RING_LOST_EVENT = "ring_lost"  # lying long unclaimed and unfelt — the soft terminal
+NAZGUL_UNMADE_EVENT = "nazgul_unmade"  # the Nine unmade with the Ring's destruction
+
+# World-transition flags (``World.flags``) the terminal outcomes raise.
+RING_DESTROYED_FLAG = "ring_destroyed"
+SAURON_RECLAIMED_FLAG = "sauron_reclaimed"
+RING_LYING_LOST_FLAG = "ring_lying_lost"
 
 
 class RingTransfer(str, Enum):
@@ -115,6 +134,18 @@ _GIFT_MAX_CORRUPTION = _SECRECY_CORRUPTION  # a possessive bearer no longer give
 _ERRAND_PULL_MIN = 30
 _ERRAND_BP = 40
 
+# Terminal outcomes (issue #5). Orodruin is active from this year — the geology
+# gate on destruction (spec: "destroyable only once Mount Doom is active ~3007+").
+_ORODRUIN_ACTIVE_YEAR = 3007
+# Once the Fire is lit, a free bearer's errand tends toward Mount Doom rather
+# than a refuge — the quest, a canonicity-weighted choice, never a script.
+_QUEST_BP = 800
+# A Nazgûl hunt that has cornered the bearer attempts a seizure each tick.
+_CAPTURE_BP = 300
+# Unborne and wholly unfelt (pull 0) this many consecutive ticks, the Ring is
+# deemed *lying lost* — a low-pull holding pattern, cleared if it is ever borne.
+_LOST_TICKS = 120
+
 _DEFAULT_MILES_PER_YEAR = 190  # fallback walking pace when a bearer's race is unknown
 
 # Per-race walking pace (miles/year) an errand advances on — the bearer's own
@@ -127,6 +158,7 @@ _RACE_PACE: Dict[Race, int] = {
     Race.ORC: 200,
     Race.ELF: 220,
     Race.MAIA: 220,
+    Race.WRAITH: 240,  # the Nine ride
 }
 
 
@@ -154,6 +186,8 @@ class Ring(Entity):
     move_points: int = 0
     miles_per_year: int = _DEFAULT_MILES_PER_YEAR
     bearer_history: List[int] = field(default_factory=list)
+    # Consecutive unborne ticks at zero pull — the lying-lost clock (issue #5).
+    lost_ticks: int = 0
 
     @property
     def borne(self) -> bool:
@@ -260,19 +294,24 @@ def ring_system(world: World, rng: random.Random) -> List[Event]:
     on a run with no Ring (headless/skeleton).
     """
     ring = the_ring(world)
-    if ring is None:
-        return []
+    if ring is None or ring.status != EntityStatus.ACTIVE.value:
+        return []  # no Ring, or a tombstoned (destroyed) one — its story is over
     r = _tick_rng(world)
     events: List[Event] = []
     if ring.borne:
         bearer = world.entities.get(ring.bearer_id)
         if not isinstance(bearer, Character) or not bearer.alive:
             events.extend(_on_bearer_fallen(world, ring, r))
+        elif bearer.title == DARK_LORD_TITLE:
+            events.extend(_reclaimed_tick(world, ring, bearer))
+        elif bearer.race == Race.WRAITH.value:
+            events.extend(_wraith_bearer_tick(world, ring, bearer))
         else:
             events.extend(_borne_tick(world, ring, bearer, r))
     else:
         events.extend(_unborne_tick(world, ring, r))
-    _decay_pull(ring)
+    if ring.status == EntityStatus.ACTIVE.value:
+        _decay_pull(world, ring)
     return events
 
 
@@ -291,11 +330,182 @@ def _borne_tick(
     events: List[Event] = []
     _track_bearer_tile(world, ring, bearer)
     _grow_corruption(ring, bearer)
+    events.extend(_maybe_captured(world, ring, bearer, r))  # the Nine, if they've cornered it
+    if not ring.borne or ring.bearer_id != bearer.id:
+        return events  # seized — the wraith's tick takes over next tick
     _maybe_errand(world, ring, bearer, r)  # danger may set it on the road
     events.extend(_advance_errand(world, ring, bearer))
+    if ring.status != EntityStatus.ACTIVE.value:
+        return events  # the errand ended in the Fire
     events.extend(_maybe_gift(world, ring, bearer, r))  # the Bilbo→heir tendency
     events.extend(_maybe_claim(world, ring, bearer, r))
     events.extend(_maybe_slip_away(world, ring, bearer, r))
+    return events
+
+
+# -- the terminal outcomes (issue #5) --------------------------------------
+
+def _reclaimed_tick(world: World, ring: Ring, bearer: Character) -> List[Event]:
+    """The Dark Lord holds the Ring: the *Sauron reclaims* terminal.
+
+    Fires its flag and its one loud event the tick he first holds it; thereafter
+    the Ring sits at his hand, pull blazing — the world reshapes through the
+    strength it lends him (phase 7), not through further Ring stochastics.
+    """
+    _track_bearer_tile(world, ring, bearer)
+    ring.pull = _PULL_MAX
+    if world.flags.get(SAURON_RECLAIMED_FLAG):
+        return []
+    world.flags[SAURON_RECLAIMED_FLAG] = True
+    return [
+        world.new_event(
+            type=RING_CLAIMED_EVENT,
+            subject_ids=[ring.id, bearer.id],
+            location_id=_bearer_site(bearer),
+            payload={
+                "bearer_id": bearer.id,
+                "corruption": ring.corruption,
+                "pull": ring.pull,
+                "terminal": True,
+            },
+        )
+    ]
+
+
+def _wraith_bearer_tick(world: World, ring: Ring, bearer: Character) -> List[Event]:
+    """A Nazgûl bears the Ring: it is carried straight to the master.
+
+    A wraith has no life of its own to be corrupted or tempted out of — it rides
+    for the dark seat on a standing errand and hands the Ring to the realm's
+    leader (the Dark Lord) on arrival, tipping into the reclaimed terminal.
+    """
+    events: List[Event] = []
+    _track_bearer_tile(world, ring, bearer)
+    if not ring.on_errand:
+        seat = _dark_seat_site(world, bearer)
+        if seat is not None:
+            send_on_errand(world, ring, seat)
+    events.extend(_advance_errand(world, ring, bearer))
+    if not ring.on_errand:  # arrived (or nowhere to ride): deliver if master is here
+        master = _dark_master(world, bearer)
+        if master is not None:
+            events.append(
+                transfer_ring(world, ring, to_bearer=master, mode=RingTransfer.GIFT)
+            )
+    return events
+
+
+def _dark_seat_site(world: World, wraith: Character) -> Optional[int]:
+    """The capital site of the wraith's realm (Barad-dûr), duck-typed off the
+    faction record so this module keeps no faction import."""
+    if wraith.faction_id is None:
+        return None
+    faction = world.entities.get(wraith.faction_id)
+    return getattr(faction, "capital_location_id", None)
+
+
+def _dark_master(world: World, wraith: Character) -> Optional[Character]:
+    """The living leader of the wraith's realm — the master the Ring is borne to."""
+    if wraith.faction_id is None:
+        return None
+    faction = world.entities.get(wraith.faction_id)
+    leader_id = getattr(faction, "leader_id", None)
+    leader = world.entities.get(leader_id) if leader_id is not None else None
+    if isinstance(leader, Character) and leader.alive and leader.id != wraith.id:
+        return leader
+    return None
+
+
+def _maybe_captured(
+    world: World, ring: Ring, bearer: Character, r: random.Random
+) -> List[Event]:
+    """A hunt of the Nine standing on the bearer's tile attempts a seizure.
+
+    The capture attempt of the spec's hunt flow: the hunt (phase 4½) only *moves*;
+    the seizure itself is rolled and written here, keeping the Ring record
+    single-writer. One bounded roll a tick — a cornered bearer may yet slip out.
+    """
+    wraith = _hunter_on_tile(world, ring)
+    if wraith is None:
+        return []
+    if r.randrange(1000) >= _CAPTURE_BP:
+        return []
+    return [transfer_ring(world, ring, to_bearer=wraith, mode=RingTransfer.THEFT)]
+
+
+def _hunter_on_tile(world: World, ring: Ring) -> Optional[Character]:
+    """The lead living wraith of an active hunt on the Ring's tile, if any.
+
+    Duck-typed on the hunt record (kind ``"hunt"``) so this module keeps no
+    import of the Sauron module (which imports this one).
+    """
+    for _id, entity in sorted(world.entities.items()):
+        if getattr(entity, "kind", None) != "hunt":
+            continue
+        if entity.status != EntityStatus.ACTIVE.value:
+            continue
+        if getattr(entity, "col", None) != ring.col or getattr(entity, "row", None) != ring.row:
+            continue
+        for wid in getattr(entity, "wraith_ids", []):
+            wraith = world.entities.get(wid)
+            if isinstance(wraith, Character) and wraith.alive:
+                return wraith
+    return None
+
+
+def _destroy_ring(world: World, ring: Ring, bearer: Character, site_id: Optional[int]) -> List[Event]:
+    """The *destroyed* terminal: the Ring goes into the Fire and the Shadow breaks.
+
+    Tombstones the Ring (status ``destroyed``, lying at Orodruin so every
+    reference still resolves), unmakes all nine Nazgûl with it, destroys the Dark
+    Lord himself (his realm then collapses through the ordinary failed-line /
+    extinction machinery over the following ticks — phase 7 drives it), ends any
+    hunt still riding, and raises the world flag.
+    """
+    events: List[Event] = []
+    former = bearer
+    if former.role == Role.RING_BEARER.value:
+        former.role = Role.NONE.value
+    ring.bearer_id = None
+    ring.location_id = site_id if site_id is not None else _ANY_SITE
+    ring.goal_site_id = None
+    ring.path = []
+    ring.move_points = 0
+    ring.pull = 0
+    ring.status = EntityStatus.DESTROYED.value
+    world.flags[RING_DESTROYED_FLAG] = True
+    world.flags[RING_LYING_LOST_FLAG] = False
+    events.append(
+        world.new_event(
+            type=RING_DESTROYED_EVENT,
+            subject_ids=[ring.id, former.id],
+            location_id=ring.location_id,
+            payload={"bearer_id": former.id},
+        )
+    )
+    # The Nine are unmade with it.
+    unmade: List[int] = []
+    for char in characters(world, alive_only=True):
+        if char.race == Race.WRAITH.value:
+            char.status = EntityStatus.DESTROYED.value
+            unmade.append(char.id)
+    if unmade:
+        events.append(
+            world.new_event(
+                type=NAZGUL_UNMADE_EVENT,
+                subject_ids=unmade,
+                location_id=ring.location_id,
+                payload={"count": len(unmade)},
+            )
+        )
+    # The Dark Lord is broken; his line fails and his realm goes to ruin.
+    for char in characters(world, alive_only=True):
+        if char.title == DARK_LORD_TITLE:
+            char.status = EntityStatus.DESTROYED.value
+    # Any hunt still on the road ends with its riders.
+    for _id, entity in sorted(world.entities.items()):
+        if getattr(entity, "kind", None) == "hunt" and entity.status == EntityStatus.ACTIVE.value:
+            entity.status = EntityStatus.DEAD.value
     return events
 
 
@@ -319,8 +529,8 @@ def _maybe_claim(
     """Deep in corruption, a bearer may *claim* the Ring — a transient event here.
 
     A non-Sauron claim is a high-corruption flare, not a resolution: pull spikes
-    and the annals mark it, but the bearer holds on. Terminal fates (a claimant
-    unmade, Sauron drawn to reclaim) are ticket 14's — left for #5 to complete.
+    and the annals mark it, but the bearer holds on. The Dark Lord's own claim is
+    the *terminal* one and never reaches here (see :func:`_reclaimed_tick`).
     """
     if ring.corruption < _CLAIM_CORRUPTION:
         return []
@@ -375,9 +585,50 @@ def _maybe_errand(
         return
     if r.randrange(1000) >= _canon_weighted(world, _ERRAND_BP):
         return
-    goal = _refuge_goal(world, ring)
+    goal = _errand_goal(world, ring, bearer, r)
     if goal is not None:
         send_on_errand(world, ring, goal)
+
+
+def _errand_goal(
+    world: World, ring: Ring, bearer: Character, r: random.Random
+) -> Optional[int]:
+    """Where a bearer moved to an errand carries the Ring: refuge — or the Fire.
+
+    Once Orodruin is active a *free* bearer's errand tends toward Mount Doom (the
+    quest), on a canonicity-weighted roll; otherwise (and whenever the roll
+    diverges) the errand is the old flight to the farthest refuge. Never fired
+    for dark bearers — a wraith rides for its master instead.
+    """
+    if _quest_possible(world, bearer) and r.randrange(1000) < _canon_weighted(
+        world, _QUEST_BP
+    ):
+        volcano = _volcano_site(world)
+        if volcano is not None:
+            return volcano
+    return _refuge_goal(world, ring)
+
+
+def _quest_possible(world: World, bearer: Character) -> bool:
+    """Whether the destruction errand is even conceivable: the Fire is lit and the
+    bearer is of the free peoples (not an orc, a wraith, or the Dark Lord)."""
+    if world.current_year < _ORODRUIN_ACTIVE_YEAR:
+        return False
+    if bearer.race in (Race.ORC.value, Race.WRAITH.value):
+        return False
+    return bearer.title != DARK_LORD_TITLE
+
+
+def _volcano_site(world: World) -> Optional[int]:
+    """The scenario's volcano site (Mount Doom), lowest id if several. ``None``
+    without a grid — no map, no Fire to reach."""
+    grid = world.grid
+    if grid is None:
+        return None
+    for site in sorted(grid.sites, key=lambda s: s.id):
+        if site.kind == "volcano":
+            return site.id
+    return None
 
 
 def _kin_heir(world: World, bearer: Character) -> Optional[Character]:
@@ -455,9 +706,16 @@ def _maybe_slip_away(
 # -- unborne life ----------------------------------------------------------
 
 def _unborne_tick(world: World, ring: Ring, r: random.Random) -> List[Event]:
-    """A tick with the Ring lying at a place: it never moves itself, but a host on
-    the ground may seize it (war-capture), else a passer-by may find it."""
+    """A tick with the Ring lying at a place: it never moves itself, but the Nine
+    may pick it up where it lies, a host on the ground may seize it (war-capture),
+    else a passer-by may find it. Long unfelt and unclaimed, it is *lying lost*."""
     events: List[Event] = []
+    hunter = _hunter_on_tile(world, ring)
+    if hunter is not None:
+        events.append(
+            transfer_ring(world, ring, to_bearer=hunter, mode=RingTransfer.FOUND)
+        )
+        return events
     captor = _host_leader_on_tile(world, ring)
     if captor is not None:
         events.append(
@@ -469,7 +727,30 @@ def _unborne_tick(world: World, ring: Ring, r: random.Random) -> List[Event]:
         events.append(
             transfer_ring(world, ring, to_bearer=finder, mode=RingTransfer.FOUND)
         )
+        return events
+    events.extend(_tick_lying_lost(world, ring))
     return events
+
+
+def _tick_lying_lost(world: World, ring: Ring) -> List[Event]:
+    """Advance the lying-lost clock: unborne at zero pull long enough raises the
+    soft-terminal flag (once) — a holding pattern, not a tombstone. Any pull, or
+    being taken up again (see :func:`transfer_ring`), resets it."""
+    if ring.pull > 0:
+        ring.lost_ticks = 0
+        return []
+    ring.lost_ticks += 1
+    if ring.lost_ticks < _LOST_TICKS or world.flags.get(RING_LYING_LOST_FLAG):
+        return []
+    world.flags[RING_LYING_LOST_FLAG] = True
+    return [
+        world.new_event(
+            type=RING_LOST_EVENT,
+            subject_ids=[ring.id],
+            location_id=ring.location_id,
+            payload={"ticks_lost": ring.lost_ticks},
+        )
+    ]
 
 
 # -- inheritance on a fallen bearer ---------------------------------------
@@ -582,6 +863,9 @@ def transfer_ring(
     ring.goal_site_id = None
     ring.path = []
     ring.move_points = 0
+    ring.lost_ticks = 0
+    if to_bearer is not None and world.flags.get(RING_LYING_LOST_FLAG):
+        world.flags[RING_LYING_LOST_FLAG] = False  # found again — the pattern breaks
 
     subjects = [ring.id]
     payload: Dict[str, object] = {"mode": mode.value}
@@ -686,6 +970,16 @@ def _advance_errand(world: World, ring: Ring, bearer: Character) -> List[Event]:
         ring.goal_site_id = None
         if site is not None:
             bearer.location_id = site.id  # the bearer arrives with it
+        # The quest's end (issue #5): an errand that reaches the active Fire casts
+        # the Ring in — unless the bearer, deep in corruption, cannot let it go
+        # (the claim flare then comes from the ordinary claim roll, not here).
+        if (
+            site is not None
+            and site.kind == "volcano"
+            and world.current_year >= _ORODRUIN_ACTIVE_YEAR
+            and ring.corruption < _CLAIM_CORRUPTION
+        ):
+            return _destroy_ring(world, ring, bearer, site.id)
     return [
         world.new_event(
             type=RING_MOVED_EVENT,
@@ -710,9 +1004,24 @@ def use_ring(ring: Ring) -> None:
     ring.pull = min(_PULL_MAX, ring.pull + _PULL_USE_SPIKE)
 
 
-def _decay_pull(ring: Ring) -> None:
-    """The world's attention ebbs a little each tick the Ring is not used."""
-    ring.pull = max(0, ring.pull - _PULL_DECAY)
+def _decay_pull(world: World, ring: Ring) -> None:
+    """The world's attention ebbs a little each tick the Ring is not used.
+
+    Sauron's strength weights the pull's *fall* (issue #5, the "pull-rise
+    weighting" his rise scales): under a strong Shadow the gaze lingers, so the
+    decay slows — read duck-typed off the faction records, never mutating them.
+    """
+    decay = max(1, _PULL_DECAY - _dark_strength(world) // 40)
+    ring.pull = max(0, ring.pull - decay)
+
+
+def _dark_strength(world: World) -> int:
+    """The highest ``sauron_strength`` any faction carries (0 in a light world)."""
+    best = 0
+    for entity in world.entities.values():
+        if getattr(entity, "kind", None) == "faction":
+            best = max(best, int(getattr(entity, "sauron_strength", 0) or 0))
+    return best
 
 
 # =========================================================================
