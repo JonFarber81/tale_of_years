@@ -93,9 +93,12 @@ _PULL_MAX = 100
 
 # Corruption growth per borne tick: a base, pushed up by a grasping bearer
 # (ambition+guile) and resisted by a steadfast one (wisdom+loyalty), floored at 1
-# so it always creeps. Trait-modulated, integer-only.
+# so it always creeps. Trait-modulated, integer-only. The trait-modulated step is
+# then scaled by the bearer's racial resistance (_RACE_CORRUPT_RESIST) — a Man
+# yields to the Ring far faster than the stubborn Hobbit-kind.
 _CORRUPT_BASE = 2
 _CORRUPT_RESIST_DIV = 25
+_CORRUPT_RESIST_DEFAULT = 100  # neutral scaling when a bearer's race is unknown
 
 # On any transfer the taint attenuates to this percent of its value — it lingers
 # on the Ring (marking that it has been borne hard) rather than resetting to nil.
@@ -146,6 +149,15 @@ _CAPTURE_BP = 300
 # deemed *lying lost* — a low-pull holding pattern, cleared if it is ever borne.
 _LOST_TICKS = 120
 
+# A bearer fallen deep into corruption turns *thrall*: past this band the will to
+# destroy fails and the will to serve grows, and the bearer sets out to carry the
+# Ring to the Dark Lord's seat and give it over — the mortal echo of the wraith's
+# ride into the "Sauron reclaims" terminal. Fires only once the Shadow stands to
+# receive it, on a *divergence*-weighted roll (see _divergence_weighted): a
+# faithful world resists and quests, a divergent one is where the bearer falls.
+_THRALL_CORRUPTION = _CLAIM_CORRUPTION  # the high band — the depth that also foils destruction
+_THRALL_BP = 80  # per-tick chance (before divergence weighting) to set out for the dark seat
+
 _DEFAULT_MILES_PER_YEAR = 190  # fallback walking pace when a bearer's race is unknown
 
 # Per-race walking pace (miles/year) an errand advances on — the bearer's own
@@ -159,6 +171,23 @@ _RACE_PACE: Dict[Race, int] = {
     Race.ELF: 220,
     Race.MAIA: 220,
     Race.WRAITH: 240,  # the Nine ride
+}
+
+# Per-race racial resistance to the Ring's corruption, as a percent scaling on the
+# trait-modulated growth step (100 = neutral). Hobbits are famously the hardest to
+# corrupt — a plain, unambitious toughness of will; Dwarves prove stubborn too;
+# Elves, being long open to its lure, less so; Men yield the fastest. Long-lived
+# Dúnedain hold out a shade better than common Men. Orcs/Maiar/Wraiths never take
+# ordinary corruption (they are routed elsewhere), so a neutral default suffices.
+_RACE_CORRUPT_RESIST: Dict[Race, int] = {
+    Race.HOBBIT: 35,  # the stubborn, unambitious Shire-folk resist longest
+    Race.DWARF: 60,
+    Race.ELF: 80,
+    Race.DUNEDAIN: 105,
+    Race.MAN: 130,  # the least steadfast — quickest to fall
+    Race.ORC: 100,
+    Race.MAIA: 100,
+    Race.WRAITH: 100,
 }
 
 
@@ -333,10 +362,14 @@ def _borne_tick(
     events.extend(_maybe_captured(world, ring, bearer, r))  # the Nine, if they've cornered it
     if not ring.borne or ring.bearer_id != bearer.id:
         return events  # seized — the wraith's tick takes over next tick
-    _maybe_errand(world, ring, bearer, r)  # danger may set it on the road
+    _maybe_turn_to_shadow(world, ring, bearer, r)  # deep in corruption: the road to the master
+    _maybe_errand(world, ring, bearer, r)  # else danger may set it on the road
     events.extend(_advance_errand(world, ring, bearer))
     if ring.status != EntityStatus.ACTIVE.value:
         return events  # the errand ended in the Fire
+    events.extend(_maybe_deliver_to_shadow(world, ring, bearer))  # give it over at the dark seat
+    if not ring.borne or ring.bearer_id != bearer.id:
+        return events  # handed to the master — the reclaimed tick takes over next tick
     events.extend(_maybe_gift(world, ring, bearer, r))  # the Bilbo→heir tendency
     events.extend(_maybe_claim(world, ring, bearer, r))
     events.extend(_maybe_slip_away(world, ring, bearer, r))
@@ -414,6 +447,72 @@ def _dark_master(world: World, wraith: Character) -> Optional[Character]:
     if isinstance(leader, Character) and leader.alive and leader.id != wraith.id:
         return leader
     return None
+
+
+def _dark_realm_seat(world: World) -> Optional[tuple[Character, int]]:
+    """The Shadow's living master and the site of his seat, if the Shadow stands.
+
+    Duck-typed off the faction records (this module imports no Sauron code): the
+    realm whose leader bears the Dark Lord's title and holds a capital to walk to.
+    Returns ``(master, seat_site_id)``, or ``None`` before the Shadow has risen.
+    """
+    for _id, entity in sorted(world.entities.items()):
+        leader_id = getattr(entity, "leader_id", None)
+        seat = getattr(entity, "capital_location_id", None)
+        if leader_id is None or seat is None:
+            continue
+        leader = world.entities.get(leader_id)
+        if (
+            isinstance(leader, Character)
+            and leader.alive
+            and leader.title == DARK_LORD_TITLE
+        ):
+            return leader, seat
+    return None
+
+
+def _maybe_turn_to_shadow(
+    world: World, ring: Ring, bearer: Character, r: random.Random
+) -> None:
+    """Deep in corruption, a bearer sets out to carry the Ring to the dark seat.
+
+    The will to destroy fails and the will to serve grows: past the thrall band a
+    bearer may abandon flight or quest and turn for the Dark Lord's seat, on a
+    divergence-weighted roll (a faithful world resists; a divergent one falls).
+    Fires only once the Shadow stands to receive it. Sets the errand; the walk and
+    the hand-over are driven downstream. Emits nothing.
+    """
+    if ring.corruption < _THRALL_CORRUPTION:
+        return
+    seat_info = _dark_realm_seat(world)
+    if seat_info is None:
+        return  # no master risen to walk toward
+    _master, seat = seat_info
+    if ring.goal_site_id == seat or bearer.location_id == seat:
+        return  # already bound for, or standing at, the dark seat
+    if r.randrange(1000) >= _divergence_weighted(world, _THRALL_BP):
+        return
+    send_on_errand(world, ring, seat)
+
+
+def _maybe_deliver_to_shadow(
+    world: World, ring: Ring, bearer: Character
+) -> List[Event]:
+    """A fallen bearer arrived at the dark seat gives the Ring over to its master.
+
+    The mortal echo of the wraith's delivery: at the seat, no longer walking and
+    still deep in corruption, the bearer hands the Ring to the Dark Lord — tipping
+    into the *Sauron reclaims* terminal (fired from the reclaimed tick next tick).
+    """
+    if ring.on_errand or ring.corruption < _THRALL_CORRUPTION:
+        return []
+    seat_info = _dark_realm_seat(world)
+    if seat_info is None:
+        return []
+    master, seat = seat_info
+    if bearer.location_id != seat or master.id == bearer.id:
+        return []
+    return [transfer_ring(world, ring, to_bearer=master, mode=RingTransfer.GIFT)]
 
 
 def _maybe_captured(
@@ -516,11 +615,17 @@ def _grow_corruption(ring: Ring, bearer: Character) -> None:
 
 def corruption_growth(bearer: Character) -> int:
     """Per-tick corruption increment for a bearer: a base lifted by a grasping
-    temper (ambition+guile) and resisted by a steadfast one (wisdom+loyalty)."""
+    temper (ambition+guile), resisted by a steadfast one (wisdom+loyalty), then
+    scaled by the bearer's racial resistance — floored at 1 so it always creeps."""
     traits = bearer.traits
     grasp = int(traits.get("ambition", 50)) + int(traits.get("guile", 50))
     resist = int(traits.get("wisdom", 50)) + int(traits.get("loyalty", 50))
-    return max(1, _CORRUPT_BASE + (grasp - resist) // _CORRUPT_RESIST_DIV)
+    step = _CORRUPT_BASE + (grasp - resist) // _CORRUPT_RESIST_DIV
+    try:
+        race_resist = _RACE_CORRUPT_RESIST.get(Race(bearer.race), _CORRUPT_RESIST_DEFAULT)
+    except ValueError:  # an unknown race string — fall back to neutral scaling
+        race_resist = _CORRUPT_RESIST_DEFAULT
+    return max(1, step * race_resist // 100)
 
 
 def _maybe_claim(
@@ -677,6 +782,17 @@ def _canon_weighted(world: World, base_bp: int) -> int:
     """
     canonicity = max(0.0, min(1.0, world.config.canonicity))
     return base_bp * int(canonicity * 1000) // 1000
+
+
+def _divergence_weighted(world: World, base_bp: int) -> int:
+    """Scale a base chance by *divergence* — how far the run strays from canon.
+
+    The inverse of :func:`_canon_weighted`: at full canonicity a never-canon move
+    (the bearer bringing the Ring to Sauron) almost never fires; in a wholly
+    divergent world it fires at its base rate. Integer permille, same contract.
+    """
+    canonicity = max(0.0, min(1.0, world.config.canonicity))
+    return base_bp * (1000 - int(canonicity * 1000)) // 1000
 
 
 def _maybe_slip_away(

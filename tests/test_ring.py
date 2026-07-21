@@ -17,9 +17,9 @@ Seams under test:
 
 from dataclasses import replace
 
-from arda_sim.characters import Race, Role, add_character
+from arda_sim.characters import DARK_LORD_TITLE, Race, Role, add_character
 from arda_sim.entities import EntityStatus
-from arda_sim.factions import seed_world
+from arda_sim.factions import FactionKind, add_faction, seed_world
 from arda_sim.persistence import dumps, loads
 from arda_sim.pipeline import PIPELINE, run_tick, run_years
 from arda_sim.ring import (
@@ -29,8 +29,11 @@ from arda_sim.ring import (
     RING_TRANSFERRED_EVENT,
     Ring,
     RingTransfer,
+    _dark_realm_seat,
+    _maybe_deliver_to_shadow,
     _maybe_errand,
     _maybe_gift,
+    _maybe_turn_to_shadow,
     corruption_growth,
     heir_candidates,
     inheritance_heir,
@@ -138,6 +141,82 @@ def test_corruption_growth_is_trait_modulated():
         traits={"ambition": 10, "guile": 10, "wisdom": 95, "loyalty": 95},
     )
     assert corruption_growth(grasping) > corruption_growth(steadfast)
+
+
+def test_corruption_growth_is_race_modulated():
+    world, grid, bilbo, ring = _world_with_bearer()
+    # Identical grasping traits across races isolates racial resistance: Hobbits
+    # hold out longest, Men fall fastest, with Dwarves and Elves between.
+    grasping = {"ambition": 90, "guile": 90, "wisdom": 20, "loyalty": 20}
+    bearers = {}
+    for name, race in (
+        ("H", Race.HOBBIT), ("D", Race.DWARF), ("E", Race.ELF), ("M", Race.MAN),
+    ):
+        bearers[race] = add_character(
+            world, name, race, 2900, role=Role.NONE,
+            location_id=grid.site_id_of("Bag End"), traits=dict(grasping),
+        )
+    growth = {race: corruption_growth(c) for race, c in bearers.items()}
+    assert growth[Race.HOBBIT] < growth[Race.DWARF] < growth[Race.ELF] < growth[Race.MAN]
+
+
+def _risen_shadow(world, grid, *, seat="Rivendell"):
+    """Seed a minimal Shadow: a realm whose leader bears the Dark Lord's title and
+    whose capital is a walkable seat — the master a fallen bearer turns toward."""
+    sauron = add_character(
+        world, "Sauron", Race.MAIA, 1000, role=Role.NONE,
+        location_id=grid.site_id_of(seat), title=DARK_LORD_TITLE,
+    )
+    realm = add_faction(
+        world, "Mordor", FactionKind.REALM,
+        leader_id=sauron.id, capital_location_id=grid.site_id_of(seat),
+    )
+    return sauron, realm
+
+
+def test_no_turn_to_shadow_before_the_shadow_stands():
+    world, grid, bilbo, ring = _world_with_bearer()
+    world.config.canonicity = 0.0  # a wholly divergent world — the fall is likeliest
+    ring.corruption = 90
+    _maybe_turn_to_shadow(world, ring, bilbo, _Roll(0))  # forced roll
+    assert _dark_realm_seat(world) is None
+    assert ring.goal_site_id is None  # no master risen to walk toward — no errand
+
+
+def test_corrupt_bearer_turns_for_the_dark_seat_when_divergent():
+    world, grid, bilbo, ring = _world_with_bearer()
+    world.config.canonicity = 0.0
+    _risen_shadow(world, grid)
+    ring.corruption = 90  # deep in the thrall band
+    _maybe_turn_to_shadow(world, ring, bilbo, _Roll(0))
+    assert ring.goal_site_id == grid.site_id_of("Rivendell")  # bound for the seat
+
+
+def test_faithful_world_resists_the_turn_to_shadow():
+    world, grid, bilbo, ring = _world_with_bearer()
+    world.config.canonicity = 1.0  # canon: the quest resists, never delivers
+    _risen_shadow(world, grid)
+    ring.corruption = 90
+    _maybe_turn_to_shadow(world, ring, bilbo, _Roll(0))  # even a forced roll can't beat 0 odds
+    assert ring.goal_site_id is None
+
+
+def test_low_corruption_bearer_does_not_turn_to_shadow():
+    world, grid, bilbo, ring = _world_with_bearer()
+    world.config.canonicity = 0.0
+    _risen_shadow(world, grid)
+    ring.corruption = 40  # below the thrall band
+    _maybe_turn_to_shadow(world, ring, bilbo, _Roll(0))
+    assert ring.goal_site_id is None
+
+
+def test_fallen_bearer_at_the_seat_gives_the_ring_over():
+    world, grid, bilbo, ring = _world_with_bearer()
+    sauron, _realm = _risen_shadow(world, grid)
+    bilbo.location_id = grid.site_id_of("Rivendell")  # arrived at the dark seat
+    ring.corruption = 90
+    events = _maybe_deliver_to_shadow(world, ring, bilbo)
+    assert events and ring.bearer_id == sauron.id  # handed to the master → reclaimed next tick
 
 
 def test_corruption_attenuates_not_resets_on_transfer():

@@ -225,14 +225,30 @@ never nowhere. A **former bearer** is anyone who has carried it before — the R
 keeps that roll, and the mark it leaves is lasting.
 
 **Corruption** — the Ring's per-bearer taint, an integer that **grows** the longer
-it is borne (faster on a grasping temper, resisted by a steadfast one) and
-**attenuates — never resets** when it changes hands. Low corruption prolongs the
-bearer's life; a middling taint bends them to secrecy; a deep one may move them to
-**claim** it.
+it is borne (faster on a grasping temper, resisted by a steadfast one and by the
+bearer's **race**) and **attenuates — never resets** when it changes hands. Low
+corruption prolongs the bearer's life; a middling taint bends them to secrecy; a
+deep one may move them to **claim** it, or to carry it to the Shadow (see
+**Thrall**).
+
+**Racial resistance** — the per-race scaling on corruption's growth: Hobbits hold
+out longest (the stubborn, unambitious Shire-folk), then Dwarves, then Elves, with
+Men falling fastest and long-lived Dúnedain a shade behind them. World-truth about
+the folk, not the temper — a Hobbit and a Man of identical traits corrupt at very
+different rates, so the same taint that turns a Man reaches a Hobbit far later.
 
 **Claim** — a bearer, deep in corruption, seizing the Ring as their own. A
 non-Sauron claim is a *transient* flare, not an ending — the terminal fates (a
 claimant unmade, the Dark Lord drawn to reclaim) belong to Sauron's rise.
+
+**Thrall (turning to the Shadow)** — a bearer fallen deep into corruption whose
+will to destroy fails and will to serve grows: past the deep band, once the Shadow
+**stands** to receive it, they abandon flight or quest and set an **errand** for
+the Dark Lord's seat, giving the Ring over on arrival — the mortal echo of a
+Nazgûl's ride, tipping into the **Sauron reclaims** terminal. Alone among the
+Ring's moves it is **divergence-weighted** (likelier the *further* a run strays
+from canon): a faithful world resists and quests, a divergent one is where the
+bearer falls.
 
 **Pull** — the Ring's global draw on the world, an integer that **spikes on use**
 and ebbs otherwise. High pull raises the odds the Ring is lost, stolen, or
@@ -261,9 +277,11 @@ since 2951, climbing toward the War-of-the-Ring window, Orodruin active ~3007.
 At canonicity 0 the baseline term vanishes and only emergent history remains.
 
 **Canonicity** — the single global 0–1 knob in the run config scaling how hard
-history is nudged toward canon. **Soft weighting only**, on four forces: Sauron's
-rise, the Ring's stirring, Free-Peoples pact odds, and character role-seeking. It
-never fires an event and never touches a battle's dice.
+history is nudged toward canon. **Soft weighting only**, on five forces: Sauron's
+rise, the Ring's stirring, Free-Peoples pact odds, and character role-seeking (all
+canon-ward), and — *inversely* — a corrupted bearer's **fall to the Shadow**
+(**divergence-weighted**, likelier the further a run diverges). It never fires an
+event and never touches a battle's dice.
 
 **Nazgûl** — the nine wraith Characters bound to the Nine (race `wraith`,
 immortal while Sauron and the Ring endure; the Witch-king at Minas Morgul,
