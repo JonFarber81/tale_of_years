@@ -88,6 +88,11 @@ _BREAK_LO = -30  # a vassal this sour toward its overlord throws off the bond
 _PROVIDER_STEP = 10  # commitment gained when a patron deepens a provider-pact
 _PROVIDER_MAX = 100
 
+# Canon pressure (issue #5): the canonicity knob softly weights *Free-Peoples*
+# alliance formation — a bonus on the treaty/marriage odds when both parties are
+# of the free folk — never a forced bond, never a touched die elsewhere.
+_CANON_PACT_BONUS = 15  # added to the odds at full canonicity, scaled below it
+
 
 # =========================================================================
 # Derived stance
@@ -311,16 +316,35 @@ def _pursue_pact(
     if peer is None:
         return []
     disp = faction.disposition_toward(peer.id)
+    canon_bonus = _canon_pact_bonus(world, faction, peer)
     if (
         disp >= _MARRIAGE_MIN
-        and _roll(rng, _marriage_odds(disp))
+        and _roll(rng, _marriage_odds(disp) + canon_bonus)
     ):
         married = _make_marriage(world, faction, peer)
         if married:
             return married
-    if not faction.has_treaty_with(peer.id) and _roll(rng, _treaty_odds(disp)):
+    if not faction.has_treaty_with(peer.id) and _roll(
+        rng, _treaty_odds(disp) + canon_bonus
+    ):
         return [_sign_treaty(world, faction, peer)]
     return []
+
+
+def _canon_pact_bonus(world: World, a: Faction, b: Faction) -> int:
+    """The canonicity soft-weight on a Free-Peoples pact's odds (issue #5).
+
+    Non-zero only when *both* parties are of the free folk (not orc-kind), scaled
+    by the run's canonicity — a canon-leaning world knits its alliances a little
+    faster; a chaotic one leaves them to disposition alone. Integer, and applied
+    to the odds *before* the one seeded roll — the dice stay honest.
+    """
+    from .factions import People
+
+    if a.people == People.ORCS.value or b.people == People.ORCS.value:
+        return 0
+    canonicity = max(0.0, min(1.0, world.config.canonicity))
+    return _CANON_PACT_BONUS * int(canonicity * 1000) // 1000
 
 
 def _sign_treaty(world: World, a: Faction, b: Faction) -> Event:

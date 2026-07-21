@@ -72,6 +72,11 @@ class World:
     id_counter: int = 1
     entities: Dict[int, Entity] = field(default_factory=dict)
     events: List[Event] = field(default_factory=list)
+    # World-transition flags — the Ring's terminal outcomes ("ring_destroyed",
+    # "sauron_reclaimed", the soft "ring_lying_lost") plus small once-only
+    # bookkeeping switches (e.g. "morgul_held"). Sparse — an absent key reads as
+    # False. Persisted with the state (schema v4).
+    flags: Dict[str, bool] = field(default_factory=dict)
     # The seeded RNG is a live object, not persisted as-is; its getstate() is
     # what serializes. Excluded from equality so two worlds compare on state.
     rng: random.Random = field(default_factory=lambda: random.Random(0), compare=False)

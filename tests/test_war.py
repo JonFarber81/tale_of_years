@@ -81,7 +81,7 @@ def _at_war(a, b):
 
 def test_war_is_wired_into_the_pipeline_at_phase_5():
     names = [name for name, _ in PIPELINE]
-    assert names[5] == "war"
+    assert names[6] == "war"  # the hunt (issue #5) rides at 5, between movement and war
     assert dict(PIPELINE)["war"].__name__ == "war"
 
 
