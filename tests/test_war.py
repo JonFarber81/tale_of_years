@@ -467,6 +467,27 @@ def test_war_events_carry_prose_and_salience():
     assert render_text(w, battle, {}) is not None
 
 
+def test_an_authored_per_seat_fortification_overrides_the_kind_default():
+    # Barad-dûr resists worthy of the Black Gate without a bespoke, canonicity-fed
+    # siege bonus: a static per-seat stat that beats the kind default (ADR-0012).
+    plain_fort = war_mod.fortification(Site("Keep", 0, 0, "fort", 1))
+    dark_tower = war_mod.fortification(Site("Barad-dûr", 0, 0, "fort", 1, fortification=900))
+    assert plain_fort == war_mod._FORTIFICATION["fort"]
+    assert dark_tower == 900 and dark_tower > plain_fort
+    # zero (the default) still derives from kind, so ordinary seats are unaffected.
+    assert war_mod.fortification(Site("Town", 0, 0, "town", 1)) == war_mod._FORTIFICATION["town"]
+
+
+def test_barad_dur_carries_its_authored_black_gate_fortification_in_the_scenario():
+    # The TA 2965 roster arms the Dark Tower with a static, kind-beating wall so
+    # the rising Shadow is no longer stormed in a couple of ticks (issues #26, #5).
+    _world, grid, _names = seed_world("barad")
+    barad = next(s for s in grid.sites if s.name == "Barad-dûr")
+    # Black-Gate tier (the "gate" wall), above the plain fort its kind would imply.
+    assert war_mod.fortification(barad) == war_mod._FORTIFICATION["gate"]
+    assert war_mod.fortification(barad) > war_mod._FORTIFICATION["fort"]
+
+
 def test_all_outcome_math_is_integer():
     # Effective strength, fortification, and siege progress are all int — no float
     # ever reaches an outcome-deciding comparison (the float-determinism policy).
@@ -480,11 +501,14 @@ def test_all_outcome_math_is_integer():
 
 
 def test_war_runs_and_reshapes_the_map_over_a_seeded_run():
+    # War no longer erupts in the opening years: it is gated by provocation and
+    # the rising Shadow (ADR-0012), so the West wakes only once Mordor climbs past
+    # visibility, in the War-of-the-Ring window. Run to ~3010 to reach the fighting.
     world, grid, _ = seed_world("great-war")
-    events = run_years(world, 30)
+    events = run_years(world, 45)
     kinds = Counter(e.type for e in events)
     assert kinds[BATTLE_EVENT] + kinds[SIEGE_EVENT] > 0  # there was fighting
-    # some realm was conquered over three decades of canon-pressured war
+    # some realm was conquered once the wars finally came
     assert kinds[CONQUEST_EVENT] > 0
 
 

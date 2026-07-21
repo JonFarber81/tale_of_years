@@ -95,6 +95,11 @@ class Site:
     kind: str
     id: int = 0
     tier: int = 0  # settlement rank (0 = ruin/none, 1 = town/fort, 2 = city)
+    # Authored siege resistance for this specific seat (0 = derive from ``kind``;
+    # see :func:`arda_sim.war.fortification`). Config, not run state — a static
+    # defensive stat that lets a Barad-dûr resist worthy of the Black Gate without
+    # inventing a bespoke, canonicity-fed siege bonus (ADR-0012).
+    fortification: int = 0
 
 
 @dataclass
@@ -303,7 +308,10 @@ def load_grid(scenario: Dict) -> TileGrid:
     # like region ids), so a character's location_id is stable across processes.
     site_ids = {name: i for i, name in enumerate(sorted(s["name"] for s in scenario.get("sites", [])), start=1)}
     sites = [
-        Site(s["name"], s["col"], s["row"], s["kind"], site_ids[s["name"]], default_tier(s["kind"]))
+        Site(
+            s["name"], s["col"], s["row"], s["kind"], site_ids[s["name"]],
+            default_tier(s["kind"]), int(s.get("fortification", 0)),
+        )
         for s in scenario.get("sites", [])
     ]
 
