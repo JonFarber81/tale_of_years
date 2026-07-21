@@ -48,7 +48,13 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from arda_sim import START_YEAR, TICKS_PER_YEAR  # noqa: E402
 from arda_sim.entities import Event  # noqa: E402
 from arda_sim.snapshot import Snapshot  # noqa: E402
-from arda_sim.ui.annals_model import AnnalsModel, render_event  # noqa: E402
+from arda_sim.ui.annals_model import AnnalsModel, EventRole, render_event  # noqa: E402
+from arda_sim.ui.annals_style import (  # noqa: E402
+    AnnalsDelegate,
+    BUCKET_OF_TYPE,
+    BUCKETS,
+    bucket_of,
+)
 from arda_sim.ui.app import build_window  # noqa: E402
 from arda_sim.world import format_tick  # noqa: E402
 
@@ -68,30 +74,105 @@ def _event(year, type_="battle", importance=50, **kw):
 def test_annals_model_appends_and_renders(qapp):
     model = AnnalsModel()
     model.append_events([_event(START_YEAR), _event(START_YEAR + 1)])
-    assert model.rowCount() == 2
-    # Newest-first: the later year is at the top (row 0), the earlier below it.
-    assert f"TA {START_YEAR + 1}" in model.data(model.index(0))
-    assert f"TA {START_YEAR}" in model.data(model.index(1))
+    # Each year contributes a header row plus its event rows, newest-first.
+    assert model.rowCount() == 4
+    assert model.visible_event_count() == 2
+    assert model.data(model.index(0)) == f"TA {START_YEAR + 1}"  # newest header
+    assert model.is_header(0) and not model.is_header(1)
+    assert model.data(model.index(2)) == f"TA {START_YEAR}"
+    assert model.is_header(2) and not model.is_header(3)
+
+
+def test_annals_year_headers_group_a_year_once(qapp):
+    model = AnnalsModel()
+    # Three events across two years, appended in two batches (the second batch
+    # extends a year that already heads the feed — no duplicate divider).
+    model.append_events([_event(START_YEAR), _event(START_YEAR + 1, importance=60)])
+    model.append_events([Event(id=99, year=START_YEAR + 1, type="siege", importance=50)])
+    headers = [
+        model.data(model.index(r)) for r in range(model.rowCount()) if model.is_header(r)
+    ]
+    assert headers == [f"TA {START_YEAR + 1}", f"TA {START_YEAR}"]
+    assert model.visible_event_count() == 3
+    # Row 1 is the newest event of the newest year (the second-batch siege).
+    assert model.event_at(1).type == "siege"
+    # A cap/filter rebuild regroups identically.
+    model.set_cap_year(START_YEAR + 1)
+    model.set_cap_year(None)
+    rebuilt = [
+        model.data(model.index(r)) for r in range(model.rowCount()) if model.is_header(r)
+    ]
+    assert rebuilt == headers
+
+
+def test_annals_event_role_exposes_structure(qapp):
+    model = AnnalsModel()
+    model.append_events([_event(START_YEAR, location_id=7)])
+    assert model.data(model.index(0), EventRole) is None  # the header row
+    event = model.data(model.index(1), EventRole)
+    assert event is not None and event.location_id == 7  # placed
+    assert model.event_at(1) is event
+
+
+def test_bucket_mapping_covers_the_four_categories(qapp):
+    assert bucket_of("battle") == "war"
+    assert bucket_of("war_declared") == "war"  # declarations read as war
+    assert bucket_of("army_mustered") == "war"
+    assert bucket_of("treaty") == "diplomacy"
+    assert bucket_of("marriage") == "diplomacy"  # the pact, not the cradle
+    assert bucket_of("succession") == "dynasty"
+    assert bucket_of("birth") == "dynasty"
+    assert bucket_of("founding") == "construction"
+    assert bucket_of("road_opened") == "construction"
+    assert bucket_of("some_future_type") == "other"  # unmapped stays legible
+    assert set(BUCKET_OF_TYPE.values()) == set(BUCKETS)
+
+
+def test_annals_delegate_paints_all_row_kinds(qapp):
+    # A paint smoke test: header, placed-important, and unplaced-dim rows all
+    # render without touching a real window (offscreen pixmap).
+    from PySide6.QtGui import QPainter, QPixmap
+    from PySide6.QtWidgets import QStyleOptionViewItem
+
+    model = AnnalsModel()
+    model.show_all()
+    model.append_events(
+        [
+            _event(START_YEAR, importance=90, location_id=3, text="a battle was joined"),
+            _event(START_YEAR, importance=5, text="a quiet road was opened"),
+        ]
+    )
+    delegate = AnnalsDelegate()
+    pixmap = QPixmap(300, 24)
+    for row in range(model.rowCount()):
+        option = QStyleOptionViewItem()
+        option.rect = pixmap.rect()
+        painter = QPainter(pixmap)
+        try:
+            delegate.paint(painter, option, model.index(row))
+        finally:
+            painter.end()
+        assert delegate.sizeHint(option, model.index(row)).height() > 0
 
 
 def test_annals_defaults_to_important_only_until_show_all(qapp):
     model = AnnalsModel()
     model.append_events([_event(START_YEAR, importance=0), _event(START_YEAR, importance=90)])
-    assert model.rowCount() == 1  # only the important one shows by default
+    assert model.visible_event_count() == 1  # only the important one shows by default
     assert model.raw_count() == 2  # both were received
     model.show_all()
-    assert model.rowCount() == 2
+    assert model.visible_event_count() == 2
     model.important_only()
-    assert model.rowCount() == 1
+    assert model.visible_event_count() == 1
 
 
 def test_annals_cap_hides_later_years(qapp):
     model = AnnalsModel()
     model.append_events([_event(y) for y in range(START_YEAR, START_YEAR + 10)])
     model.set_cap_year(START_YEAR + 3)
-    assert model.rowCount() == 4  # years START_YEAR..START_YEAR+3
+    assert model.visible_event_count() == 4  # years START_YEAR..START_YEAR+3
     model.set_cap_year(None)
-    assert model.rowCount() == 10
+    assert model.visible_event_count() == 10
 
 
 def test_render_event_uses_prose_text_when_present():
@@ -122,7 +203,7 @@ def test_tick_advance_updates_label_and_annals(qapp):
         assert window._annals_model.raw_count() == 1
         assert window._annals_model.rowCount() == 0
         window._annals_model.show_all()
-        assert window._annals_model.rowCount() == 1
+        assert window._annals_model.visible_event_count() == 1
         assert window._scrub.isEnabled()
         assert window._scrub.maximum() == 0  # frontier is tick 0
     finally:
@@ -154,11 +235,11 @@ def test_show_all_toolbar_toggle_switches_the_feed(qapp):
         window._annals_model.append_events(
             [_event(START_YEAR, importance=0), _event(START_YEAR, importance=90)]
         )
-        assert window._annals_model.rowCount() == 1  # important-only by default
+        assert window._annals_model.visible_event_count() == 1  # important-only default
         window._show_all_action.trigger()  # -> show all
-        assert window._annals_model.rowCount() == 2
+        assert window._annals_model.visible_event_count() == 2
         window._show_all_action.trigger()  # -> back to important-only
-        assert window._annals_model.rowCount() == 1
+        assert window._annals_model.visible_event_count() == 1
     finally:
         window.close()
 
@@ -171,9 +252,12 @@ def test_seeded_window_streams_visible_prose_into_the_annals(qapp):
         for snap, evs in window._playback.fast_forward_to(20 * TICKS_PER_YEAR):
             window._on_frontier_changed(window._playback.frontier)
             window._on_tick_advanced(snap, evs)
-        assert window._annals_model.rowCount() > 0  # important events are shown
-        first = window._annals_model.data(window._annals_model.index(0))
-        assert first.startswith("TA ") and "[" not in first  # rendered prose
+        assert window._annals_model.visible_event_count() > 0  # important events shown
+        model = window._annals_model
+        assert model.is_header(0)  # the newest year's divider heads the feed
+        assert model.data(model.index(0)).startswith("TA ")
+        first_event = model.data(model.index(1))  # first event row under it
+        assert first_event and "[" not in first_event  # rendered prose, no fallback
     finally:
         window.close()
 
@@ -242,7 +326,7 @@ def test_scrub_restore_caps_annals_without_new_events(qapp):
         for snap, evs in window._playback.fast_forward_to(5 * TICKS_PER_YEAR - 1):
             window._on_frontier_changed(window._playback.frontier)
             window._on_tick_advanced(snap, evs)
-        assert window._annals_model.rowCount() == 5 * TICKS_PER_YEAR  # every month shown
+        assert window._annals_model.visible_event_count() == 5 * TICKS_PER_YEAR
 
         # Scrub back to the first month of the third year (START_YEAR + 2): restore
         # its snapshot, cap the annals at that year, emit no new events.
@@ -251,6 +335,6 @@ def test_scrub_restore_caps_annals_without_new_events(qapp):
         window._on_tick_advanced(snapshot, [])
         assert window._year_label.text() == format_tick(third_year_tick)
         # Capped at year START_YEAR+2 -> years +0, +1, +2 remain (3 years of months).
-        assert window._annals_model.rowCount() == 3 * TICKS_PER_YEAR
+        assert window._annals_model.visible_event_count() == 3 * TICKS_PER_YEAR
     finally:
         window.close()
