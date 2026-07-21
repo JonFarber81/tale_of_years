@@ -91,6 +91,22 @@ def test_stewardship_office_title_passes_to_the_heir():
     assert world.entities[gondor.leader_id].title == "Steward of Gondor"
 
 
+def test_departure_over_the_sea_vacates_the_seat():
+    # The seat passes on a leader's *departure*, not only death: an Elf-lord sailing
+    # West (status 'departed', so not `alive`) leaves the realm to his heir.
+    world, _grid, _ = seed_world("sail")
+    rivendell = _faction(world, "Rivendell")
+    elrond = world.entities[rivendell.leader_id]
+    elrond.status = EntityStatus.DEPARTED.value
+
+    events = succession(world, world.rng)
+
+    assert any(e.type == SUCCESSION_EVENT for e in events)
+    seated = world.entities[rivendell.leader_id]
+    assert seated.id != elrond.id and seated.alive
+    assert elrond.id in seated.parent_ids  # an heir of Elrond's own line
+
+
 def test_a_leaderless_faction_never_triggers_succession():
     # Dol Guldur is seeded with no leader and the cultures hold ground without one;
     # a vacant-by-design seat must not read as a failed line on the very first tick.
