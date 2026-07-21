@@ -4,7 +4,7 @@
 
 **Blocked by:** 08, 10, 11
 
-**Status:** ready-for-agent
+**Status:** migrated — now tracked on GitHub as [#3](https://github.com/JonFarber81/tale_of_years/issues/3) (2026-07)
 
 - [ ] Single bespoke `Artifact` record with the invariant `bearer_id` **XOR** `location_id` (exactly one non-null), seeded borne by Bilbo at Hobbiton with low scalars.
 - [ ] Movement: a passenger that advances on its bearer's miles/year budget in phase 4 (emit `ring_moved`); unborne it does not move; high `pull` raises loss/theft/betrayal odds (not autonomous locomotion).
