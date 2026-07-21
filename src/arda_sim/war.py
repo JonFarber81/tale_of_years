@@ -59,6 +59,7 @@ from .world import World
 
 # Event types this phase emits.
 BATTLE_EVENT = "battle"  # two hosts met in the field
+EVASION_EVENT = "evasion"  # an outmatched host refused battle and slipped away
 SIEGE_EVENT = "siege"  # a host invests / storms a fortified seat
 CONQUEST_EVENT = "conquest"  # a seat fell and a realm's land changed hands
 RAZING_EVENT = "razing"  # a captured land was laid waste rather than held
@@ -126,6 +127,24 @@ _CASUALTY_LOSER = {"decisive": 75, "marginal": 35}
 # the rule sensible for tiny/bare hosts whose mustered strength wasn't recorded.
 _DESTROY_FRACTION = 25
 _DESTROY_FLOOR = 100
+
+# -- evasion tuning (giving vs. refusing battle, issue #13) ----------------
+#
+# Before a shared-tile clash, a *defender* whose pursuer's effective strength
+# exceeds its own by more than this ratio (×100 → 150 = 1.5×) tries to slip away
+# rather than give battle. An aggressor pressing its objective never evades, nor
+# does a host defending its own seat or with nowhere to run. Escape is a seeded,
+# can-fail contest: succeed → withdraw a tile toward home, no battle; fail → be
+# caught and fight at a disorder penalty. Traits bite here — the evader's general
+# lends leadership+guile, and a faster host outruns a slower pursuer.
+_EVASION_THRESHOLD = 150  # pursuer must be >1.5× the evader's strength to prompt flight
+_EVASION_BASE = 40  # base escape odds (percent)
+_EVASION_PACE_DIV = 8  # +1 odds per this much miles/year the evader is faster
+_EVASION_LEADER_DIV = 8  # +1 odds per this much (leadership + guile) of the evader's general
+_EVASION_EDGE_DIV = 6  # -1 odds per this much percent the pursuer outmatches the evader
+_EVASION_ODDS_MIN = 5
+_EVASION_ODDS_MAX = 90
+_DISORDER_PENALTY = 850  # permille strength of a host caught after a failed evasion
 
 # -- siege tuning (integer) -----------------------------------------------
 
@@ -213,13 +232,113 @@ def _field_battles(world: World, grid: TileGrid, rng: random.Random) -> List[Eve
             if not _hosts_engage(world, grid, a, b):
                 continue
             attacker, defender = _sides(world, grid, a, b)
-            events.extend(
-                _resolve_battle(world, grid, rng, attacker, defender, seat_site=None)
-            )
+            events.extend(_resolve_engagement(world, grid, rng, attacker, defender))
             spent.add(a.id)
             spent.add(b.id)
             break
     return events
+
+
+def _resolve_engagement(
+    world: World, grid: TileGrid, rng: random.Random, attacker: Army, defender: Army
+) -> List[Event]:
+    """Give or refuse battle: an outmatched defender may slip away before it clashes.
+
+    A defender the attacker outmatches by more than :data:`_EVASION_THRESHOLD`
+    attempts a seeded evasion (unless it is defending its own seat or has nowhere to
+    run — an aggressor never evades). Success → it withdraws a tile toward home and
+    no battle is fought; failure → it is caught and fights at a disorder penalty.
+    """
+    outcome = _attempt_evasion(world, grid, rng, attacker, defender)
+    if outcome == "escaped":
+        return [_evasion_event(world, attacker, defender)]
+    disordered = defender if outcome == "caught" else None
+    return _resolve_battle(world, grid, rng, attacker, defender, seat_site=None, disordered=disordered)
+
+
+def _attempt_evasion(
+    world: World, grid: TileGrid, rng: random.Random, attacker: Army, defender: Army
+) -> str:
+    """Decide the defender's evasion: ``"escaped"``, ``"caught"``, or ``"stand"``.
+
+    Draws the seeded escape roll only when the defender is genuinely outmatched and
+    *able* to run, so a battle that was always going to be fought perturbs no RNG
+    beyond the clash itself. On ``"escaped"`` the defender is stepped one tile home.
+    """
+    a_eff = _effective_strength(world, grid, attacker, defending=False)
+    d_eff = _effective_strength(world, grid, defender, defending=True)
+    if a_eff * 100 <= d_eff * _EVASION_THRESHOLD:  # not outmatched enough to flee
+        return "stand"
+    retreat = _retreat_step(world, grid, defender)
+    if retreat is None:  # defending its seat, or nowhere to run — it must give battle
+        return "stand"
+    if rng.randrange(100) < _evasion_odds(world, attacker, defender, a_eff, d_eff):
+        _withdraw_to(world, defender, retreat)
+        return "escaped"
+    return "caught"
+
+
+def _evasion_odds(
+    world: World, attacker: Army, defender: Army, a_eff: int, d_eff: int
+) -> int:
+    """Integer percent chance an outmatched defender slips away (bounded).
+
+    Raised by the evader's pace edge over the pursuer and by its general's
+    leadership+guile (traits with bite); lowered by how badly the pursuer outmatches
+    it. All integer — no float reaches the roll.
+    """
+    odds = _EVASION_BASE
+    odds += (defender.miles_per_year - attacker.miles_per_year) // _EVASION_PACE_DIV
+    general = world.entities.get(defender.leader_id) if defender.leader_id else None
+    if isinstance(general, Character) and general.alive:
+        rally = int(general.traits.get("leadership", 0)) + int(general.traits.get("guile", 0))
+        odds += rally // _EVASION_LEADER_DIV
+    edge_percent = a_eff * 100 // max(1, d_eff) - 100  # how far over the evader the pursuer is
+    odds -= edge_percent // _EVASION_EDGE_DIV
+    return max(_EVASION_ODDS_MIN, min(_EVASION_ODDS_MAX, odds))
+
+
+def _retreat_step(world: World, grid: TileGrid, army: Army) -> Optional[Tuple[int, int]]:
+    """The first tile of the path home for a host that would flee, or ``None`` when
+    it cannot evade — it stands on its own capital seat (besieged) or has no path home."""
+    faction = _faction(world, army.faction_id)
+    if faction is None:
+        return None
+    home = _site_tile(grid, faction.capital_location_id)
+    if home is None or (army.col, army.row) == home:  # no seat, or defending it
+        return None
+    path = find_path(grid, (army.col, army.row), home)
+    if not path:
+        return None
+    return (path[0][0], path[0][1])
+
+
+def _withdraw_to(world: World, army: Army, tile: Tuple[int, int]) -> None:
+    """Step a fleeing host one tile toward home and set it marching the rest of the
+    way (path reassigned fresh — snapshot-safe), abandoning any objective/siege."""
+    grid = world.grid
+    army.col, army.row = tile
+    army.target_faction_id = None
+    army.dest_site_id = None
+    army.siege_progress = 0
+    faction = _faction(world, army.faction_id)
+    home = _site_tile(grid, faction.capital_location_id) if faction is not None else None
+    army.path = find_path(grid, (army.col, army.row), home) if (grid is not None and home) else []
+
+
+def _evasion_event(world: World, attacker: Army, defender: Army) -> Event:
+    """The annal of a host refusing battle and slipping away before the clash."""
+    return world.new_event(
+        type=EVASION_EVENT,
+        subject_ids=_army_and_factions(
+            defender, _faction(world, defender.faction_id), _faction(world, attacker.faction_id)
+        ),
+        location_id=None,
+        payload={
+            "evader_faction_id": defender.faction_id,
+            "pursuer_faction_id": attacker.faction_id,
+        },
+    )
 
 
 def _hosts_engage(world: World, grid: TileGrid, a: Army, b: Army) -> bool:
@@ -260,16 +379,23 @@ def _resolve_battle(
     attacker: Army,
     defender: Army,
     seat_site: Optional[Site],
+    disordered: Optional[Army] = None,
 ) -> List[Event]:
     """Fight one battle to a decision and emit its ``battle`` event plus any deaths.
 
     ``seat_site`` (a :class:`~arda_sim.tiles.Site` or ``None``) adds a
     fortification bonus to the defender when the clash is at a defended seat.
+    ``disordered`` (a host caught after a failed evasion) fights at a strength
+    penalty.
     """
     a_eff = _effective_strength(world, grid, attacker, defending=False)
     d_eff = _effective_strength(world, grid, defender, defending=True)
     if seat_site is not None:
         d_eff += d_eff * fortification(seat_site) // _FORT_DEFAULT
+    if disordered is attacker:
+        a_eff = a_eff * _DISORDER_PENALTY // _UNIT
+    elif disordered is defender:
+        d_eff = d_eff * _DISORDER_PENALTY // _UNIT
 
     swing = rng.randrange(-_BATTLE_SWING, _BATTLE_SWING + 1)
     a_roll = a_eff * (100 + swing) // 100  # the roll lifts one side...

@@ -57,6 +57,7 @@ from .war import (
     BATTLE_EVENT,
     COASTAL_RAID_EVENT,
     CONQUEST_EVENT,
+    EVASION_EVENT,
     RAZING_EVENT,
     SIEGE_EVENT,
 )
@@ -118,6 +119,9 @@ BASE_WEIGHT: Dict[str, int] = {
     BATTLE_EVENT: 60,
     SIEGE_EVENT: 45,
     COASTAL_RAID_EVENT: 40,
+    # A host refusing battle and slipping away (issue #13) — campaign noise that
+    # still clears the important-only cut, a shade below a siege in progress.
+    EVASION_EVENT: 38,
     # Construction & economy (ticket 12): a new-founded or rebuilt settlement is a
     # mark on the map that clears the important-only cut; a settlement growing and
     # a road opening are quieter civic works that read only under "show all".
@@ -513,6 +517,21 @@ def _render_battle(ctx: _RenderContext, event: Event) -> str:
     return template.format(winner=winner, loser=loser, at=at)
 
 
+def _render_evasion(ctx: _RenderContext, event: Event) -> str:
+    payload = event.payload or {}
+    evader = ctx.name(payload.get("evader_faction_id"))
+    pursuer = ctx.name(payload.get("pursuer_faction_id"))
+    template = _pick(
+        (
+            "The host of {evader} refused battle and slipped away before {pursuer}.",
+            "Outmatched, {evader} withdrew rather than face {pursuer} in the field.",
+        ),
+        event,
+        salt=23,
+    )
+    return template.format(evader=evader, pursuer=pursuer)
+
+
 def _render_siege(ctx: _RenderContext, event: Event) -> str:
     subjects = event.subject_ids
     besieger = ctx.name(subjects[1]) if len(subjects) >= 2 else "a host"
@@ -736,6 +755,7 @@ _RENDERERS: Dict[str, Callable[[_RenderContext, Event], str]] = {
     ARMY_ARRIVED_EVENT: _render_army_arrived,
     ARMY_DISBANDED_EVENT: _render_army_disbanded,
     BATTLE_EVENT: _render_battle,
+    EVASION_EVENT: _render_evasion,
     SIEGE_EVENT: _render_siege,
     CONQUEST_EVENT: _render_conquest,
     RAZING_EVENT: _render_razing,

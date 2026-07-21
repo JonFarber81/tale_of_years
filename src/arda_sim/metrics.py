@@ -26,7 +26,7 @@ from typing import Iterable, List, Sequence
 from . import TICKS_PER_YEAR
 from .armies import ARMY_DISBANDED_EVENT, ARMY_MUSTERED_EVENT
 from .entities import Event
-from .war import BATTLE_EVENT
+from .war import BATTLE_EVENT, CONQUEST_EVENT, EVASION_EVENT
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,8 @@ class WarSummary:
     musters: int
     battles: int
     decisive_battles: int
+    conquests: int
+    evasions: int
     hosts_destroyed: int
     median_host_size: int
     pct_led: int
@@ -60,6 +62,8 @@ class WarSummary:
             f"battles fought:   {self.battles:5d}  ({self.per_century(self.battles):.1f}/century)",
             f"  decisive:       {self.decisive_battles:5d}  "
             f"({self.per_century(self.decisive_battles):.1f}/century)",
+            f"conquests:        {self.conquests:5d}  ({self.per_century(self.conquests):.1f}/century)",
+            f"evasions:         {self.evasions:5d}  ({self.per_century(self.evasions):.1f}/century)",
             f"hosts destroyed:  {self.hosts_destroyed:5d}  "
             f"({self.per_century(self.hosts_destroyed):.1f}/century)",
             f"median host size: {self.median_host_size:5d}",
@@ -90,6 +94,8 @@ def war_summary(events: Iterable[Event], span_years: int) -> WarSummary:
     sizes: List[int] = []
     battles = 0
     decisive = 0
+    conquests = 0
+    evasions = 0
     destroyed = 0
     for ev in events:
         if ev.type == ARMY_MUSTERED_EVENT:
@@ -101,6 +107,10 @@ def war_summary(events: Iterable[Event], span_years: int) -> WarSummary:
             battles += 1
             if ev.payload.get("tier") == "decisive":
                 decisive += 1
+        elif ev.type == CONQUEST_EVENT:
+            conquests += 1
+        elif ev.type == EVASION_EVENT:
+            evasions += 1
         elif ev.type == ARMY_DISBANDED_EVENT:
             destroyed += 1
     pct_led = (led * 100 // musters) if musters else 0
@@ -109,6 +119,8 @@ def war_summary(events: Iterable[Event], span_years: int) -> WarSummary:
         musters=musters,
         battles=battles,
         decisive_battles=decisive,
+        conquests=conquests,
+        evasions=evasions,
         hosts_destroyed=destroyed,
         median_host_size=_median(sizes),
         pct_led=pct_led,
