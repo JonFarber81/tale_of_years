@@ -367,6 +367,28 @@ def test_focus_tile_centers_the_view_and_pulse_expires(qapp):
         window.close()
 
 
+def test_zoom_out_stops_at_fit_the_map(qapp):
+    # The zoom-out floor is dynamic: however hard you spin the wheel, the scale
+    # never drops below "the whole map just fits the viewport".
+    window = build_window("fellowship")
+    try:
+        window.resize(900, 700)
+        window.show()  # realize the layout so the viewport has its true size
+        qapp.processEvents()
+        view = window._map
+        for _ in range(60):  # far more notches than the old fixed floor allowed
+            view._apply_zoom(1 / 1.15)
+        floor = view._min_scale()
+        assert view._scale == floor  # landed exactly on the clamp
+        assert floor > 0.05  # a real cap, not the old postage-stamp scale
+        # And zooming back in still works, up to the fixed close-up cap.
+        for _ in range(200):
+            view._apply_zoom(1.15)
+        assert view._scale == 8.0
+    finally:
+        window.close()
+
+
 def test_scrub_restore_caps_annals_without_new_events(qapp):
     window = build_window("fellowship", seed_characters=False)  # heartbeat-only
     try:
