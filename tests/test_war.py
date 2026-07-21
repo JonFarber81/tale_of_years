@@ -387,7 +387,7 @@ def test_all_outcome_math_is_integer():
     army = _army(w, f.id, 1, 0, size=1234)
     eff = war_mod._effective_strength(w, w.grid, army, defending=True)
     assert isinstance(eff, int)
-    assert isinstance(war_mod._fortification(Site("S", 0, 0, "city", 1)), int)
+    assert isinstance(war_mod.fortification(Site("S", 0, 0, "city", 1)), int)
 
 
 def test_war_runs_and_reshapes_the_map_over_a_seeded_run():

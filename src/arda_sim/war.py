@@ -259,7 +259,7 @@ def _resolve_battle(
     a_eff = _effective_strength(world, grid, attacker, defending=False)
     d_eff = _effective_strength(world, grid, defender, defending=True)
     if seat_site is not None:
-        d_eff += d_eff * _fortification(seat_site) // _FORT_DEFAULT
+        d_eff += d_eff * fortification(seat_site) // _FORT_DEFAULT
 
     swing = rng.randrange(-_BATTLE_SWING, _BATTLE_SWING + 1)
     a_roll = a_eff * (100 + swing) // 100  # the roll lifts one side...
@@ -338,7 +338,7 @@ def _provider_factor(faction: Faction) -> int:
     return _UNIT + bonus
 
 
-def _fortification(site: Site) -> int:
+def fortification(site: Site) -> int:
     """The siege resistance of a seat, by its kind (unknown kinds get a modest wall)."""
     return _FORTIFICATION.get(site.kind, _FORT_DEFAULT)
 
@@ -383,7 +383,7 @@ def _press_siege(
     """Add this tick's progress; when the wall breaks, storm and conquer the seat."""
     inc = _SIEGE_BASE + army.size // _SIEGE_SIZE_DIV + rng.randrange(_SIEGE_JITTER)
     army.siege_progress += inc
-    if army.siege_progress < _fortification(seat):
+    if army.siege_progress < fortification(seat):
         return [
             world.new_event(
                 type=SIEGE_EVENT,
@@ -393,7 +393,7 @@ def _press_siege(
                     "besieger_faction_id": attacker.id,
                     "besieged_faction_id": besieged.id,
                     "progress": army.siege_progress,
-                    "required": _fortification(seat),
+                    "required": fortification(seat),
                 },
             )
         ]
