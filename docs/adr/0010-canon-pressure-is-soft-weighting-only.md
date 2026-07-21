@@ -18,6 +18,12 @@ role-seeking (phase 7). It never fires an event, never overrides a die. At
 `canonicity = 0` the baseline term vanishes and the strength flattens to the
 purely emergent deltas.
 
+> **Amended by ADR-0011.** A fifth force — a corrupt bearer's *fall to the
+> Shadow* — reads the same knob **inversely** (divergence-weighted, likelier the
+> further a run strays from canon). The "soft weighting only, never overrides a
+> die" guarantee below is unchanged; only "exactly four forces, all canon-ward"
+> is superseded.
+
 Consequences worth recording:
 
 - **A derived RNG, like the Ring's.** Every stochastic choice the Sauron phase
