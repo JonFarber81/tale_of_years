@@ -111,6 +111,7 @@ class Army(Entity):
     move_points: int = 0
     miles_per_year: int = DEFAULT_MILES_PER_YEAR
     supply_lag: int = 0  # consecutive marching ticks off friendly soil (attrition depth)
+    siege_progress: int = 0  # accumulated progress against the seat it besieges (ticket 11)
     prominence: int = 0  # salience input, read by chronicle.subject_prominence
 
     @property

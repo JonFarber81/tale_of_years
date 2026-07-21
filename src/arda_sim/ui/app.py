@@ -49,6 +49,10 @@ def build_window(
     else:
         world = World.new_run(seed, canonicity=canonicity)
         faction_names = {}
+    # Attach the map as the live handle every territory-touching phase reaches
+    # through (ADR-0004) — without it movement (phase 4) and war (phase 5) are
+    # inert no-ops, so the political map would never move. Mirrors seed_world().
+    world.grid = grid
     playback = Playback(world)
     return MainWindow(playback, grid, faction_names)
 

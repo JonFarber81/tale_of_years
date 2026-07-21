@@ -43,6 +43,13 @@ from .diplomacy import (
 from .entities import Event
 from .factions import FACTION_INTENT_EVENT
 from .succession import ABSORPTION_EVENT, LINE_FAILED_EVENT, SUCCESSION_EVENT
+from .war import (
+    BATTLE_EVENT,
+    COASTAL_RAID_EVENT,
+    CONQUEST_EVENT,
+    RAZING_EVENT,
+    SIEGE_EVENT,
+)
 from .world import World
 
 # The heartbeat's type string (mirrors ``pipeline.HEARTBEAT_EVENT_TYPE``, kept
@@ -93,6 +100,14 @@ BASE_WEIGHT: Dict[str, int] = {
     ARMY_MUSTERED_EVENT: 35,
     ARMY_ARRIVED_EVENT: 40,
     ARMY_DISBANDED_EVENT: 45,
+    # War & battles (ticket 11): a realm conquered or a land razed is history's
+    # loudest event; a pitched battle rings just below; a siege in progress and a
+    # coastal raid are steady campaign noise that still clears the important cut.
+    CONQUEST_EVENT: 85,
+    RAZING_EVENT: 80,
+    BATTLE_EVENT: 60,
+    SIEGE_EVENT: 45,
+    COASTAL_RAID_EVENT: 40,
     _HEARTBEAT_EVENT: 0,  # the placeholder tick is never important
 }
 
@@ -449,6 +464,109 @@ def _render_army_disbanded(ctx: _RenderContext, event: Event) -> str:
     return template.format(faction=faction)
 
 
+def _render_battle(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    winner = ctx.name(subjects[0]) if subjects else "a host"
+    loser = ctx.name(subjects[1]) if len(subjects) >= 2 else "another"
+    place = ctx.place(event.location_id)
+    at = f" before {place}" if place else ""
+    if (event.payload or {}).get("tier") == "decisive":
+        template = _pick(
+            (
+                "{winner} broke {loser} in the field{at}.",
+                "{winner} routed {loser}{at}, and the day was theirs.",
+            ),
+            event,
+            salt=14,
+        )
+    else:
+        template = _pick(
+            (
+                "{winner} bested {loser} in a hard-fought battle{at}.",
+                "{winner} and {loser} met in battle{at}, and {winner} held the field.",
+            ),
+            event,
+            salt=15,
+        )
+    return template.format(winner=winner, loser=loser, at=at)
+
+
+def _render_siege(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    besieger = ctx.name(subjects[1]) if len(subjects) >= 2 else "a host"
+    place = ctx.place(event.location_id)
+    at = f" {place}" if place else " the seat"
+    template = _pick(
+        (
+            "{besieger} pressed the siege of{at}.",
+            "The host of {besieger} lay before{at}, and its walls yet held.",
+        ),
+        event,
+        salt=16,
+    )
+    return template.format(besieger=besieger, at=at)
+
+
+def _render_conquest(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    fallen = ctx.name(subjects[0]) if subjects else "a realm"
+    conqueror = ctx.name(subjects[1]) if len(subjects) >= 2 else "a conqueror"
+    place = ctx.place(event.location_id)
+    if place:
+        template = _pick(
+            (
+                "{place} fell, and {conqueror} took the lands of {fallen}.",
+                "{place} was stormed, and {fallen} was conquered by {conqueror}.",
+            ),
+            event,
+            salt=17,
+        )
+    else:
+        template = _pick(
+            (
+                "{conqueror} took the lands of {fallen}.",
+                "{fallen} was conquered by {conqueror}.",
+            ),
+            event,
+            salt=17,
+        )
+    return template.format(place=place, conqueror=conqueror, fallen=fallen)
+
+
+def _render_razing(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    fallen = ctx.name(subjects[0]) if subjects else "a realm"
+    razer = ctx.name(subjects[1]) if len(subjects) >= 2 else "the enemy"
+    place = ctx.place(event.location_id)
+    at = f" {place}" if place else " the seat"
+    template = _pick(
+        (
+            "{razer} put{at} to the torch and left only ruin.",
+            "The lands of {fallen} were laid waste by {razer}.",
+        ),
+        event,
+        salt=18,
+    )
+    return template.format(razer=razer, fallen=fallen, at=at)
+
+
+def _render_coastal_raid(ctx: _RenderContext, event: Event) -> str:
+    subjects = event.subject_ids
+    raider = ctx.name(subjects[0]) if subjects else "raiders"
+    target = ctx.name(subjects[1]) if len(subjects) >= 2 else "the coast"
+    place = ctx.place(event.location_id)
+    at = f" {place}" if place else " the coast"
+    template = _pick(
+        (
+            "The {raider} fell upon{at} and harried the shores of {target}.",
+            "{raider} raiders pillaged{at}, coast of {target}.",
+        ),
+        event,
+        salt=19,
+    )
+    return template.format(raider=raider, target=target, at=at)
+
+
 def _render_war_ended(ctx: _RenderContext, event: Event) -> str:
     subjects = event.subject_ids
     a = ctx.name(subjects[0]) if subjects else "a realm"
@@ -484,6 +602,11 @@ _RENDERERS: Dict[str, Callable[[_RenderContext, Event], str]] = {
     ARMY_MUSTERED_EVENT: _render_army_mustered,
     ARMY_ARRIVED_EVENT: _render_army_arrived,
     ARMY_DISBANDED_EVENT: _render_army_disbanded,
+    BATTLE_EVENT: _render_battle,
+    SIEGE_EVENT: _render_siege,
+    CONQUEST_EVENT: _render_conquest,
+    RAZING_EVENT: _render_razing,
+    COASTAL_RAID_EVENT: _render_coastal_raid,
 }
 
 

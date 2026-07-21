@@ -4,12 +4,16 @@
 
 **Blocked by:** 08, 09, 10
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Battle triggers when enemy hosts share a location or a border route segment, or a host sits on an enemy-owned settlement (→ siege); resolution order deterministic by location id; only pairs flagged at-war (ticket 09) fight.
-- [ ] Resolution: `effective_strength = size × leader_factor × terrain/posture × provider-unit modifiers`, one bounded seeded roll → outcome tier → integer casualties; winner holds the field, loser retreats or is destroyed; emits `battle`. Upsets are possible; canonicity never touches the dice.
-- [ ] Sieges persist across ticks (`besieging` state + accumulating progress; fortification bonus); on fall the attacker holds the `seat_location_id` → ownership flips (`conquest`) with an optional **raze** (→ `ruin`, `razing`) by posture.
-- [ ] Named-character death = rare post-battle scaled roll (higher on the losing side, lowered by `martial`); on death → tombstone + `death (killed_in_battle)` + trigger ticket 08 succession.
-- [ ] Provider hosts fight as ordinary armies with unit-type modifiers; Corsairs resolve as coastal raids on coast regions (no seat seizure).
-- [ ] Battle/siege/conquest/razing events carry prose + salience weights; casualties, victor, and territory changes are inspectable.
-- [ ] Tests: strength dominates on average but upsets occur; sieges span multiple ticks; conquest flips ownership; named death triggers succession; all outcome-deciding math is integer/fixed-point.
+- [x] Battle triggers when enemy hosts share a tile or an adjacent tile, or a host sits on an at-war enemy's fortified capital seat (→ siege); hosts, sieges, and providers are all processed in a fixed id/tile order; only factions flagged at-war (ticket 09) fight (a provider fights its patron's wars). — `war._field_battles`/`_sieges`/`_hosts_engage`.
+- [x] Resolution: `effective_strength = size × leader × provider × (defender) terrain/posture`, one bounded seeded roll tilting the ratio both ways → tier → integer casualties; winner holds the field, loser retreats toward home or is destroyed; emits `battle`. Upsets possible; canonicity never touches the dice. — `war._resolve_battle`/`_effective_strength`.
+- [x] Sieges persist across ticks (`Army.siege_progress` accumulates against a per-site-kind fortification); on fall the attacker takes the realm → ownership flips (`conquest`), a total loss **extinguishes** the realm (tombstone + dormant claim, wars ended), with an optional **raze** (land laid waste) by posture/aggression. — `war._press_siege`/`_conquer`/`_extinguish`.
+- [x] Named-character death = rare post-battle/storming integer roll (higher on the losing side, blunted by `martial`); on death → tombstone + `death (killed_in_battle)`; a slain ruler vacates `leader_id` and the next tick's succession seats the heir. — `war._maybe_slay`/`_roll_battle_deaths`.
+- [x] Provider hosts fight as ordinary armies with unit-type modifiers; Corsairs never march — they resolve as occasional (once-a-year, seeded) coastal raids that pillage an enemy shore without seizing a seat. — `war._muster_providers`/`_provider_factor`/`_coastal_raids`.
+- [x] Battle/siege/conquest/razing/coastal-raid events carry prose + salience base-weights; casualties, victor, and territory changes ride the payload and are inspectable. — `chronicle.BASE_WEIGHT`/`_render_battle` … `_render_coastal_raid`.
+- [x] Tests: strength dominates on average but upsets occur; sieges span multiple ticks; conquest flips ownership; named death triggers succession; all outcome-deciding math is integer/fixed-point. — `tests/test_war.py` (21 tests).
+
+**Also fixed:** `ui/app.build_window` never attached `world.grid`, so the UI ran neither movement (phase 4) nor war (phase 5) — the political map never moved. Now attaches it (ADR-0004), matching `seed_world`.
+
+**v1 simplifications (documented, within the content-authoring fog):** conquest is by the **capital** seat only (taking it takes the whole realm) — per-region seat_location_ids are future content. Razing lays a region **waste** (owner → unowned) rather than flipping a persisted site kind to `ruin`, since site-kind state isn't persisted until later; the chronicle records the razing.
