@@ -58,6 +58,10 @@ ARMY_DISBANDED_EVENT = "army_disbanded"  # a host bled to nothing on the march
 # of these) is a heavy, several-fold-larger war-effort, not a small annual levy.
 MUSTER_BASE = 2000
 MUSTER_PER_STRENGTH = 120
+# Sauron's rise scales the dark realm's musters (issue #5): each point of the
+# phase-7 ``sauron_strength`` scalar (zero on every other faction) adds this many
+# to the host it raises — a strong Shadow fields hosts no free realm can match.
+SAURON_MUSTER_PER_STRENGTH = 60
 
 # Muster cadence (issue #13). A faction that fields a host cannot raise or lend to
 # another until this many years pass *after that host leaves play* — a base rest
@@ -153,9 +157,15 @@ def muster_size(faction: Faction) -> int:
     """The host a faction raises: a base levy plus a slice of its strength.
 
     Pure and deterministic — no RNG — so a faction of a given strength always
-    fields the same number.
+    fields the same number. ``sauron_strength`` (non-zero only on the dark realm)
+    scales its musters on top of ordinary strength — the issue-#5 consumption of
+    the phase-7 scalar, one tick after it was computed.
     """
-    return MUSTER_BASE + max(0, faction.military_strength) * MUSTER_PER_STRENGTH
+    return (
+        MUSTER_BASE
+        + max(0, faction.military_strength) * MUSTER_PER_STRENGTH
+        + max(0, faction.sauron_strength) * SAURON_MUSTER_PER_STRENGTH
+    )
 
 
 def host_cooldown_years(size: int) -> int:

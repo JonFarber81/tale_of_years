@@ -121,6 +121,9 @@ class Intent(str, Enum):
     FORTIFY = "fortify"
     SEEK_PACT = "seek_pact"
     BUILD = "build"
+    # Loose the Nine upon the Ring (issue #5): scoreable only by the dark realm,
+    # and only while Sauron's strength and the Ring's pull are both high.
+    HUNT = "hunt_ring"
 
     def __str__(self) -> str:
         return self.value
@@ -132,6 +135,7 @@ INTENT_MENU: tuple = (
     Intent.FORTIFY,
     Intent.SEEK_PACT,
     Intent.BUILD,
+    Intent.HUNT,
 )
 
 # Event type phase 2 emits — one per deciding faction per year. Kept deliberately
@@ -203,6 +207,16 @@ class Faction(Entity):
     # depletes the realm's manpower for longer (ADR-0009).
     march_speed: int = 0
     muster_cooldown_until: int = 0
+    # Sauron's rise (issue #5) — meaningful only on the dark realm (Mordor), zero
+    # everywhere else. ``sauron_strength`` is the phase-7 scalar
+    # (canon_baseline × canonicity + Σ emergent deltas), consumed by the *next*
+    # tick's phases 2–4 (musters, provider commitment, the hunt). ``sauron_delta``
+    # is the bounded accumulator of emergent checks and spurs (defeats, victories,
+    # conquests); ``sauron_events_seen`` is the event-id watermark the phase-7
+    # scan resumes from, so each battle counts exactly once.
+    sauron_strength: int = 0
+    sauron_delta: int = 0
+    sauron_events_seen: int = 0
 
     @property
     def kind_tag(self) -> FactionKind:
@@ -405,6 +419,14 @@ _JITTER = 15  # exclusive upper bound of the per-intent RNG add
 _CANON_WEIGHT = 40  # how hard the canonicity scalar leans on a faction's canon move
 _WITHDRAW_PENALTY = 60  # subtracted from attack/muster for a withdrawing faction
 
+# The hunt (issue #5): gates on the phase-7 scalars computed *last* tick — the
+# spec's deliberate one-tick lag. Blocked outright for every faction with no
+# ``sauron_strength``, and for the dark realm itself until both thresholds hold.
+HUNT_STRENGTH_MIN = 45  # sauron_strength needed before the Nine ride
+HUNT_PULL_MIN = 35  # the Ring must have stirred (pull) this loudly
+_HUNT_URGENCY = 60  # flat weight once unlocked: a stirring Ring outranks a war
+_HUNT_BLOCKED = -10_000  # a score no jitter can rescue
+
 
 def _hostility(faction: Faction) -> tuple:
     """The faction this one most dislikes and how strongly (0 if none disliked)."""
@@ -422,11 +444,15 @@ def _friendliness(faction: Faction) -> int:
     return max([v for v in faction.disposition.values() if v > 0], default=0)
 
 
-def _score_intents(faction: Faction, canonicity: float) -> Dict[Intent, int]:
+def _score_intents(
+    faction: Faction, canonicity: float, hunt_drive: int = _HUNT_BLOCKED
+) -> Dict[Intent, int]:
     """Weighted-utility score per menu intent, before RNG jitter.
 
     Reads only the faction's own cached scalars and disposition map — never the
     grid — so it is safe inside the ``system(world, rng)`` signature.
+    ``hunt_drive`` is computed by the caller (it needs the Ring's ``pull``);
+    blocked by default so a bare call scores the classic menu.
     """
     _target, hostility = _hostility(faction)
     friendliness = _friendliness(faction)
@@ -440,6 +466,7 @@ def _score_intents(faction: Faction, canonicity: float) -> Dict[Intent, int]:
         Intent.FORTIFY: (100 - aggression) + hostility // 2,
         Intent.SEEK_PACT: friendliness + max(0, 60 - strength),
         Intent.BUILD: (100 - aggression) // 2 + 20,
+        Intent.HUNT: hunt_drive,
     }
     if withdrawing:
         scores[Intent.ATTACK] -= _WITHDRAW_PENALTY
@@ -464,14 +491,45 @@ def _canon_intent(faction: Faction) -> Optional[Intent]:
         return None
 
 
-def _decide(faction: Faction, rng: random.Random, canonicity: float) -> Intent:
+def _hunt_drive(world: World, faction: Faction) -> int:
+    """The hunt's phase-2 score for this faction, or blocked.
+
+    Only the dark realm (the one faction carrying a ``sauron_strength``) may
+    hunt, and only while last phase 7's strength and the Ring's ``pull`` are both
+    over their thresholds — the spec's "high strength + high pull" trigger. The
+    Ring is read duck-typed (pull + bearer only, never mutated); a Ring already
+    in dark hands, destroyed, or absent blocks the hunt outright.
+    """
+    if faction.sauron_strength < HUNT_STRENGTH_MIN:
+        return _HUNT_BLOCKED
+    ring = None
+    for _id, entity in sorted(world.entities.items()):
+        if getattr(entity, "kind", None) == "ring":
+            ring = entity
+            break
+    if ring is None or ring.status != EntityStatus.ACTIVE.value:
+        return _HUNT_BLOCKED
+    pull = int(getattr(ring, "pull", 0) or 0)
+    if pull < HUNT_PULL_MIN:
+        return _HUNT_BLOCKED
+    bearer_id = getattr(ring, "bearer_id", None)
+    if bearer_id is not None:
+        bearer = world.entities.get(bearer_id)
+        if getattr(bearer, "faction_id", None) == faction.id:
+            return _HUNT_BLOCKED  # already in the Shadow's keeping
+    return faction.sauron_strength + pull + _HUNT_URGENCY
+
+
+def _decide(
+    faction: Faction, rng: random.Random, canonicity: float, hunt_drive: int
+) -> Intent:
     """Pick this faction's intent: top weighted-utility score + RNG jitter.
 
     Jitter is drawn once per menu intent in fixed :data:`INTENT_MENU` order, so
     the whole decision is reproducible under the run seed. Ties break by menu
     order (``max`` keeps the first seen).
     """
-    base = _score_intents(faction, canonicity)
+    base = _score_intents(faction, canonicity, hunt_drive)
     best: Optional[Intent] = None
     best_score = None
     for intent in INTENT_MENU:
@@ -497,7 +555,7 @@ def faction_decisions(world: World, rng: random.Random) -> List[Event]:
     events: List[Event] = []
     canonicity = world.config.canonicity
     for faction in deciding_factions(world):
-        intent = _decide(faction, rng, canonicity)
+        intent = _decide(faction, rng, canonicity, _hunt_drive(world, faction))
         target_id = 0
         if intent is Intent.ATTACK:
             target_id, _ = _hostility(faction)
@@ -866,10 +924,12 @@ def seed_world(seed_str: str, canonicity: float = 1.0):
     """
     from .characters import new_seeded_run
     from .ring import seed_ring
+    from .sauron import seed_nazgul
 
     world = new_seeded_run(seed_str, canonicity=canonicity)
     grid = load_scenario(_ROSTER_SCENARIO_FILE)
     faction_names = seed_factions(world, grid)
     world.grid = grid  # live handle: lets the succession phase reach territory (ADR-0004)
-    seed_ring(world, grid)  # the One Ring, borne by Bilbo (ticket 13) — seeded last
+    seed_ring(world, grid)  # the One Ring, borne by Bilbo (ticket 13)
+    seed_nazgul(world)  # the Nine, seated at Minas Morgul and Dol Guldur (issue #5)
     return world, grid, faction_names

@@ -25,6 +25,8 @@ from .economy import construction_economy as _construction_economy  # phase 6
 from .entities import Event
 from .factions import faction_decisions as _faction_decisions  # phase 3
 from .ring import ring_system as _ring  # runs after war so it can read the field
+from .sauron import nazgul_hunt as _nazgul_hunt  # the Nine ride after armies march
+from .sauron import sauron_rise as _sauron_rise  # phase 7
 from .succession import succession as _succession  # phase 2
 from .war import war as _war  # phase 5
 from .world import World
@@ -35,22 +37,21 @@ System = Callable[[World, random.Random], List[Event]]
 HEARTBEAT_EVENT_TYPE = "tick"
 
 
-def _sauron_rise(world: World, rng: random.Random) -> List[Event]:  # phase 7
-    return []
-
-
 def _salience_bookkeeping(world: World, rng: random.Random) -> List[Event]:  # phase 8
     return []
 
 
 # The fixed phase order. Each entry is (phase name, system). Order is the
 # reproducibility contract and must not change casually — see spec phase-flow.
+# ``hunt`` is the Nine's movement (the spec's phase-4 seam, after armies march);
+# the capture attempt itself resolves in the Ring phase, after war.
 PIPELINE: Tuple[Tuple[str, System], ...] = (
     ("aging_births_deaths", _aging_births_deaths),
     ("succession", _succession),
     ("faction_decisions", _faction_decisions),
     ("diplomacy", _diplomacy),
     ("movement", _movement),
+    ("hunt", _nazgul_hunt),
     ("war", _war),
     ("construction_economy", _construction_economy),
     ("ring", _ring),
