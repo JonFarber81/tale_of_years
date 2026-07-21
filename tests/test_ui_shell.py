@@ -464,6 +464,64 @@ def test_annals_click_pushes_dossier_into_inspection_dock(qapp):
         window.close()
 
 
+def test_bucket_chips_filter_the_feed(qapp):
+    # The color legend doubles as a filter: unchecking a chip hides its
+    # bucket's events; unmapped types stay visible whatever the chips say.
+    window = build_window("fellowship")
+    try:
+        model = window._annals_model
+        model.append_events(
+            [
+                _event(START_YEAR, type_="battle", importance=90),
+                _event(START_YEAR, type_="treaty", importance=90),
+                _event(START_YEAR, type_="succession", importance=90),
+                _event(START_YEAR, type_="founding", importance=90),
+                _event(START_YEAR, type_="some_future_type", importance=90),
+            ]
+        )
+        assert model.visible_event_count() == 5  # all chips on by default
+        chips = window._bucket_chips
+        chips["war"].click()  # off
+        assert model.visible_event_count() == 4
+        shown = {
+            model.event_at(r).type
+            for r in range(model.rowCount())
+            if not model.is_header(r)
+        }
+        assert "battle" not in shown and "some_future_type" in shown
+        for bucket in ("diplomacy", "dynasty", "construction"):
+            chips[bucket].click()
+        assert model.visible_event_count() == 1  # only the unmapped type remains
+        chips["war"].click()  # re-enabling restores the rows
+        assert model.visible_event_count() == 2
+    finally:
+        window.close()
+
+
+def test_bucket_chips_compose_with_the_importance_toggle(qapp):
+    window = build_window("fellowship")
+    try:
+        model = window._annals_model
+        model.append_events(
+            [
+                _event(START_YEAR, type_="battle", importance=90),
+                _event(START_YEAR, type_="treaty", importance=5),
+            ]
+        )
+        assert model.visible_event_count() == 1  # the dull treaty needs show-all
+        window._show_all_action.trigger()
+        assert model.visible_event_count() == 2
+        window._bucket_chips["diplomacy"].click()  # chips AND with show-all
+        assert model.visible_event_count() == 1
+        window._show_all_action.trigger()  # important-only again, chip still off
+        assert model.visible_event_count() == 1  # just the battle
+        window._bucket_chips["diplomacy"].click()
+        window._show_all_action.trigger()
+        assert model.visible_event_count() == 2  # both controls released
+    finally:
+        window.close()
+
+
 def test_zoom_out_stops_at_fit_the_map(qapp):
     # The zoom-out floor is dynamic: however hard you spin the wheel, the scale
     # never drops below "the whole map just fits the viewport".

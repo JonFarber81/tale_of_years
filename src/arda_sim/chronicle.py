@@ -24,7 +24,7 @@ lives in one place.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Mapping, Optional, Sequence
+from typing import Callable, Dict, FrozenSet, List, Mapping, Optional, Sequence
 
 from .armies import (
     ARMY_ARRIVED_EVENT,
@@ -746,6 +746,10 @@ class AnnalsFilter:
     year: Optional[int] = None
     subject_id: Optional[int] = None
     faction_id: Optional[int] = None
+    # Types hidden outright (the UI's category chips exclude whole buckets by
+    # naming their member types); None/empty excludes nothing. ANDs with the
+    # other constraints like every index does.
+    excluded_types: Optional[FrozenSet[str]] = None
 
     def matches(self, event: Event, faction_of: Mapping[int, int] = _NO_FACTIONS) -> bool:
         """Whether ``event`` passes this filter.
@@ -757,6 +761,8 @@ class AnnalsFilter:
         if event.importance < self.min_importance:
             return False
         if self.type is not None and event.type != self.type:
+            return False
+        if self.excluded_types and event.type in self.excluded_types:
             return False
         if self.year is not None and event.year != self.year:
             return False

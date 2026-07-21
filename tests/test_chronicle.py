@@ -151,6 +151,17 @@ def test_filter_by_type_year_and_subject():
     assert not AnnalsFilter(subject_id=7).matches(ev)
 
 
+def test_filter_excluded_types_hide_named_types():
+    # The UI's category chips exclude whole buckets by naming their types;
+    # exclusion ANDs with the threshold like every other constraint.
+    ev = _ev(DEATH_EVENT, importance=90)
+    assert not AnnalsFilter(excluded_types=frozenset({DEATH_EVENT})).matches(ev)
+    assert AnnalsFilter(excluded_types=frozenset({BIRTH_EVENT})).matches(ev)
+    assert AnnalsFilter(excluded_types=None).matches(ev)  # None excludes nothing
+    dull = _ev(DEATH_EVENT, importance=0)
+    assert not AnnalsFilter(excluded_types=frozenset({BIRTH_EVENT})).matches(dull)
+
+
 def test_filter_by_faction_uses_the_subject_to_faction_index():
     ev = _ev(DEATH_EVENT, subject_ids=[42], importance=90)
     faction_of = {42: 5}  # character 42 belongs to faction 5

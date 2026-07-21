@@ -94,6 +94,21 @@ def bucket_of(event_type: str) -> str:
     return BUCKET_OF_TYPE.get(event_type, OTHER)
 
 
+def types_in_bucket(bucket: str) -> frozenset:
+    """The event types a bucket names (empty for ``other`` — chips can only
+    subtract known buckets, so unmapped types always stay visible)."""
+    return frozenset(t for t, b in BUCKET_OF_TYPE.items() if b == bucket)
+
+
+# Chip labels for the interactive legend (ticket 04).
+BUCKET_LABELS: Dict[str, str] = {
+    WAR: "War",
+    DIPLOMACY: "Diplomacy",
+    DYNASTY: "Dynasty",
+    CONSTRUCTION: "Construction",
+}
+
+
 # Mid-tone hues that read against both light and dark palettes; ``other`` is
 # painted from the live palette instead so it stays theme-neutral.
 BUCKET_COLORS: Dict[str, QColor] = {
