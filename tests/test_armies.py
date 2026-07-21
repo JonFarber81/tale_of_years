@@ -255,44 +255,164 @@ def test_muster_picks_the_ablest_field_leader_and_makes_them_a_general():
                          traits={"martial": 30, "leadership": 30})
     strong = add_character(w, "Captain", Race.MAN, 2900, faction_id=f.id,
                            traits={"martial": 80, "leadership": 75})
-    leader = army_mod._muster_leader(w, f)
+    leader = army_mod._coalition_leader(w, [f], f)
     assert leader is strong  # the ablest non-ruler, not the king himself
-    army_mod._raise_army(w, grid, f, (0, 0))
+    enemy = add_faction(w, "Enemy", FactionKind.REALM, capital_location_id=1)
+    army_mod._raise_army(w, grid, f, (0, 0), enemy, [f])
     assert strong.role == Role.GENERAL.value  # took field command
 
 
-def test_muster_target_prefers_a_war_enemy_then_the_most_hated_seated_realm():
+def test_muster_target_is_a_war_enemy_only_not_mere_hostility():
+    # Post-#13: a faction musters only when genuinely *at war*. Deep hostility with
+    # no declared war is no longer a march objective (the at-war gate).
     w = World.new_run("target")
     grid = _grid(4, 1, sites=[Site("A", 0, 0, "town", 1), Site("B", 3, 0, "town", 2)])
     a = add_faction(w, "A", FactionKind.REALM, capital_location_id=1)
     hated = add_faction(w, "Hated", FactionKind.REALM, capital_location_id=2)
     a.disposition = {str(hated.id): -80}
-    assert army_mod._march_target(w, a) is hated  # most-hated seated realm
-    war_enemy = add_faction(w, "Enemy", FactionKind.REALM, capital_location_id=2)
-    a.at_war_with = [war_enemy.id]
-    assert army_mod._march_target(w, a) is war_enemy  # a live war wins
+    assert army_mod._march_target(w, a) is None  # hostility alone raises no host
+    a.at_war_with = [hated.id]
+    assert army_mod._march_target(w, a) is hated  # a live war does
 
 
 def test_a_provider_is_never_a_march_objective():
     w = World.new_run("prov")
     a = add_faction(w, "A", FactionKind.REALM, capital_location_id=1)
     prov = add_faction(w, "P", FactionKind.PROVIDER, gateway_location_id=2)
-    a.disposition = {str(prov.id): -100}
+    a.at_war_with = [prov.id]  # even at war, a provider holds no ground to march on
     assert army_mod._march_target(w, a) is None
 
 
-def test_a_faction_musters_only_one_standing_host_at_a_time():
+def test_a_faction_fields_only_one_standing_host_at_a_time():
     w = World.new_run("cap")
-    grid = _grid(4, 1, sites=[Site("Seat", 0, 0, "town", 1)])
+    grid = _grid(4, 1, sites=[Site("Seat", 0, 0, "town", 1), Site("Foe", 3, 0, "town", 2)])
     w.grid = grid
     f = add_faction(w, "F", FactionKind.REALM, capital_location_id=1, aggression=90)
     f.military_strength = 40
+    enemy = add_faction(w, "Enemy", FactionKind.REALM, capital_location_id=2)
+    f.at_war_with = [enemy.id]  # the at-war gate: a host needs a declared war
     f.current_intent = {"intent": Intent.MUSTER.value}
     first = movement(w, w.rng)
     second = movement(w, w.rng)
     assert sum(e.type == ARMY_MUSTERED_EVENT for e in first) == 1
-    assert sum(e.type == ARMY_MUSTERED_EVENT for e in second) == 0  # cap holds
+    assert sum(e.type == ARMY_MUSTERED_EVENT for e in second) == 0  # already committed
     assert len([a for a in armies(w, alive_only=True) if a.faction_id == f.id]) == 1
+
+
+# -- muster cadence: at-war gate + size-scaled cooldown (issue #13) --------
+
+def _war_setup(w, aggression=90):
+    """A lead realm at war with a seated enemy, ready to muster (grid attached)."""
+    grid = _grid(6, 1, sites=[Site("Seat", 0, 0, "town", 1), Site("Foe", 5, 0, "town", 2)])
+    w.grid = grid
+    f = add_faction(w, "F", FactionKind.REALM, capital_location_id=1, aggression=aggression)
+    f.military_strength = 40
+    enemy = add_faction(w, "Enemy", FactionKind.REALM, capital_location_id=2)
+    f.at_war_with = [enemy.id]
+    f.current_intent = {"intent": Intent.MUSTER.value}
+    return grid, f, enemy
+
+
+def test_a_faction_at_peace_cannot_muster():
+    w = World.new_run("peace-gate")
+    grid = _grid(4, 1, sites=[Site("Seat", 0, 0, "town", 1)])
+    w.grid = grid
+    f = add_faction(w, "F", FactionKind.REALM, capital_location_id=1, aggression=99)
+    f.military_strength = 40
+    f.current_intent = {"intent": Intent.MUSTER.value}  # wants force, but no war
+    assert not [e for e in movement(w, w.rng) if e.type == ARMY_MUSTERED_EVENT]
+
+
+def test_a_spent_host_rests_under_a_size_scaled_cooldown():
+    w = World.new_run("cooldown")
+    grid, f, enemy = _war_setup(w)
+    host = [a for a in armies(w, alive_only=True)]
+    movement(w, w.rng)
+    host = next(a for a in armies(w, alive_only=True) if a.faction_id == f.id)
+    assert f.muster_cooldown_until == 0  # a standing host sets no cooldown yet
+    army_mod.end_host(w, host)  # the host leaves play
+    assert f.muster_cooldown_until == w.current_year + host.cooldown_years
+    assert host.cooldown_years >= army_mod.MUSTER_COOLDOWN_BASE
+    # Within the cooldown the faction cannot raise another, even wanting to.
+    host.status = __import__("arda_sim.entities", fromlist=["EntityStatus"]).EntityStatus.DEAD.value
+    assert not army_mod._can_muster(w, f)
+
+
+def test_cooldown_scales_up_with_the_size_of_the_host_raised():
+    small = army_mod.host_cooldown_years(1000)
+    large = army_mod.host_cooldown_years(30000)
+    assert small < large  # a greater hosting depletes the realm for longer
+    assert large <= army_mod.MUSTER_COOLDOWN_CAP  # ...but bounded
+
+
+# -- coalition Gathering + leader ladder (issue #13) -----------------------
+
+def test_allies_at_war_combine_into_one_coalition_host():
+    w = World.new_run("coalition")
+    grid = _grid(6, 1, sites=[Site("Seat", 0, 0, "town", 1), Site("Foe", 5, 0, "town", 2)])
+    w.grid = grid
+    lead = add_faction(w, "Lead", FactionKind.REALM, capital_location_id=1, aggression=90)
+    ally = add_faction(w, "Ally", FactionKind.REALM)
+    enemy = add_faction(w, "Enemy", FactionKind.REALM, capital_location_id=2)
+    lead.military_strength = ally.military_strength = 40
+    lead.treaties = [ally.id]
+    ally.treaties = [lead.id]
+    lead.at_war_with = ally.at_war_with = [enemy.id]  # both share the war
+    lead.current_intent = {"intent": Intent.MUSTER.value}
+    movement(w, w.rng)
+    hosts = [a for a in armies(w, alive_only=True) if a.faction_id in (lead.id, ally.id)]
+    assert len(hosts) == 1  # one combined host, not two
+    host = hosts[0]
+    assert host.faction_id == lead.id  # owned by the lead
+    assert set(host.contributor_ids) == {lead.id, ally.id}
+    # summed levies (mustered_size is the raise-time strength, before any march attrition)
+    assert host.mustered_size == army_mod.muster_size(lead) + army_mod.muster_size(ally)
+
+
+def test_the_leader_ladder_falls_back_to_the_heir_then_a_generated_captain():
+    w = World.new_run("ladder")
+    f = add_faction(w, "F", FactionKind.REALM, capital_location_id=1)
+    king = add_character(w, "King", Race.MAN, 2900, role=Role.RULER, faction_id=f.id)
+    f.leader_id = king.id
+    heir = add_character(w, "Heir", Race.MAN, 2940, role=Role.HEIR, faction_id=f.id,
+                         traits={"martial": 60})
+    # No field-eligible non-heir → the heir leads (rung 2).
+    assert army_mod._coalition_leader(w, [f], f) is heir
+    # With the heir gone too, a generated captain is raised (rung 3).
+    heir.status = __import__("arda_sim.entities", fromlist=["EntityStatus"]).EntityStatus.DEAD.value
+    captain = army_mod._coalition_leader(w, [f], f)
+    assert captain is not None and captain is not king
+    assert captain.role == Role.GENERAL.value
+    assert captain.parent_ids == []  # non-dynastic, outside the succession line
+
+
+def test_a_generated_captain_is_deterministic():
+    def cap_traits(seed):
+        w = World.new_run(seed)
+        f = add_faction(w, "F", FactionKind.REALM, capital_location_id=1)
+        return army_mod.generate_captain(w, f).traits
+    assert cap_traits("gcap") == cap_traits("gcap")  # same run → same captain
+
+
+# -- per-faction march pace (issue #13) ------------------------------------
+
+def test_march_pace_is_per_faction_and_a_coalition_uses_the_leads():
+    w = World.new_run("pace")
+    grid = _grid(6, 1, sites=[Site("Seat", 0, 0, "town", 1), Site("Foe", 5, 0, "town", 2)])
+    w.grid = grid
+    from arda_sim.factions import People, faction_march_speed
+    rohan = add_faction(w, "Riders", FactionKind.REALM, capital_location_id=1,
+                        people=People.MEN, march_speed=320)
+    dwarves = add_faction(w, "Khazad", FactionKind.REALM, people=People.DWARVES)
+    assert faction_march_speed(rohan) == 320  # authored override
+    assert faction_march_speed(dwarves) < faction_march_speed(rohan)  # dwarves slower
+    enemy = add_faction(w, "Enemy", FactionKind.REALM, capital_location_id=2)
+    rohan.military_strength = 40
+    rohan.at_war_with = [enemy.id]
+    rohan.current_intent = {"intent": Intent.MUSTER.value}
+    movement(w, w.rng)
+    host = next(a for a in armies(w, alive_only=True) if a.faction_id == rohan.id)
+    assert host.miles_per_year == 320  # the host marches at the lead's pace
 
 
 def test_army_at_finds_the_host_standing_on_a_tile():
