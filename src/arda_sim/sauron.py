@@ -98,9 +98,10 @@ _VASSAL_LOST_CHECK = -20  # Dol Guldur fallen
 _MORGUL_LOST_CHECK = -20  # Minas Morgul's ground no longer the dark realm's
 
 # Provider commitment climbs toward the Shadow's strength (a canon-pressure
-# consumption of the phase-7 scalar; diplomacy's pacts still deepen it too).
-_PROVIDER_STEP = 2  # per year, while below target
-_PROVIDER_MAX = 100
+# consumption of the phase-7 scalar; diplomacy's pacts still deepen it too —
+# named distinctly from diplomacy's _PROVIDER_STEP, which is the per-pact jump).
+_COMMIT_CLIMB_STEP = 2  # per year, while below target
+_COMMIT_MAX = 100
 
 # Role-seeking (the fourth canon-pressure force): once a year each ruler's
 # eldest unroled adult child may take up the heirship, canonicity-weighted.
@@ -157,11 +158,7 @@ def dark_realm(world: World) -> Optional[Faction]:
             entity = world.entities.get(char.faction_id)
             if isinstance(entity, Faction):
                 return entity
-    for faction in factions(world):
-        leader = world.entities.get(faction.leader_id) if faction.leader_id else None
-        if isinstance(leader, Character) and leader.title == DARK_LORD_TITLE:
-            return faction
-    return None
+    return _realm_of_the_dark_lord(world)
 
 
 def nazgul(world: World, *, alive_only: bool = False) -> List[Character]:
@@ -528,12 +525,12 @@ def _scale_providers(world: World, realm: Faction) -> None:
     """
     if world.month != 1:
         return
-    target = min(_PROVIDER_MAX, realm.sauron_strength)
+    target = min(_COMMIT_MAX, realm.sauron_strength)
     for provider in factions(world, alive_only=True):
         if not provider.is_provider or provider.allegiance_faction_id != realm.id:
             continue
         if provider.commitment < target:
-            provider.commitment = min(target, provider.commitment + _PROVIDER_STEP)
+            provider.commitment = min(target, provider.commitment + _COMMIT_CLIMB_STEP)
 
 
 def _role_seeking(world: World) -> List[Event]:
