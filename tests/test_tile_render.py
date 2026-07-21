@@ -185,6 +185,35 @@ def test_site_labels_are_tier_gated_on_zoom(qapp):
         window.close()
 
 
+def test_site_markers_follow_kind_and_tier_changes(qapp):
+    # Markers are rebuilt from the live grid so they track a site's kind/tier as
+    # construction grows or war razes it (ticket 04). refresh_sites is guarded by
+    # a change-signature, so it is a no-op until a site actually moves.
+    window = build_window("fellowship")
+    try:
+        m = window._map
+        grid = window._grid
+        assert len(m._site_markers) == len(grid.sites)  # one marker per site
+
+        # No change -> the guard skips the rebuild (same item objects reused).
+        before = list(m._site_markers)
+        m.refresh_sites()
+        assert m._site_markers is before or all(
+            a is b for a, b in zip(m._site_markers, before)
+        )
+
+        # Grow a town into a city: the markers rebuild, and the site's label is
+        # re-gated to its new (city) tier.
+        town = next(s for s in grid.sites if s.kind == "town")
+        idx = grid.sites.index(town)
+        grid.set_site(town.id, "city", 2)
+        m.refresh_sites()
+        assert m._site_markers[idx] is not before[idx]  # that marker was redrawn
+        assert m._site_labels[idx][1] == 2  # label now gated as a city
+    finally:
+        window.close()
+
+
 def test_seeded_factions_paint_territory_with_a_frontier(qapp):
     # Real factions (ticket 07) own regions on the shipped map, so several
     # factions hold ground and a derived frontier exists somewhere.
