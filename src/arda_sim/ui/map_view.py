@@ -83,6 +83,95 @@ _MARCH_CUE_BASE = TILE * 0.34  # base distance from tile centre
 _MARCH_CUE_HALFWIDTH = TILE * 0.18  # half the arrowhead's base width
 _MARCH_CUE_ALPHA = 205  # subtle, not solid
 
+# -- settlement markers -----------------------------------------------------
+# Site markers say what stands there by kind/tier (ticket 04): a cream keep for a
+# city, a modest cream house for a town, a grey martial tower for a fort, broken
+# grey stubs for a ruin, and a small neutral disc for non-settlement sites
+# (gate/pass/gateway/…). Drawn as procedural silhouettes (the terrain precedent —
+# the Kenney sheet has no fitting building sprite), supersampled into a per-tile
+# pixmap so the edges stay crisp; the marker scales with the map like the terrain.
+_SITE_SS = 4  # supersample factor (draw big, scale the item down to one tile)
+_SITE_BASELINE = 0.80  # ground line as a fraction of the tile, buildings sit on it
+_SITE_SETTLE_FILL = QColor(245, 235, 200)  # cream — inhabited settlements
+_SITE_FORT_FILL = QColor(160, 162, 170)    # cool stone grey — a garrisoned keep
+_SITE_RUIN_FILL = QColor(122, 116, 108)    # muted grey-brown — thrown down
+_SITE_EDGE = QColor(20, 20, 20)            # dark outline, as the old disc had
+
+
+def _crenellated_block(x, w, y_top, merlon_h, body_h, n) -> QPolygonF:
+    """A wall/tower silhouette whose top edge is crenellated into ``n`` merlons.
+
+    Spans ``[x, x+w]`` horizontally; the merlons rise from ``y_top+merlon_h`` to
+    ``y_top`` and the body drops to ``y_top+merlon_h+body_h``. One polygon so it
+    fills and strokes with a single clean outline.
+    """
+    y_wall = y_top + merlon_h
+    y_bottom = y_wall + body_h
+    unit = w / (2 * n - 1)
+    pts = [QPointF(x, y_bottom), QPointF(x, y_wall)]
+    cx = x
+    for i in range(2 * n - 1):
+        if i % 2 == 0:  # a merlon: up, across, back down to the wall top
+            pts += [QPointF(cx, y_top), QPointF(cx + unit, y_top),
+                    QPointF(cx + unit, y_wall)]
+        else:  # a gap: run along the wall top
+            pts.append(QPointF(cx + unit, y_wall))
+        cx += unit
+    pts.append(QPointF(x + w, y_bottom))
+    return QPolygonF(pts)
+
+
+def _draw_site_symbol(p: QPainter, kind: str, tier: int, span: float) -> None:
+    """Paint a site's marker into a ``span``×``span`` pixmap by kind/tier.
+
+    Most-specific first: an explicit ``fort`` reads martial even though it shares
+    tier 1 with a town; a ``city``/tier-2 gets the largest, most elaborate keep; a
+    ``ruin`` is visibly diminished; anything else (non-settlement sites) is a small
+    neutral disc so it stays legible without pretending to be a settlement.
+    """
+    base = span * _SITE_BASELINE
+    pen = QPen(_SITE_EDGE, span * 0.022)
+    p.setPen(pen)
+    if kind == "city" or tier >= 2:
+        p.setBrush(_SITE_SETTLE_FILL)
+        # Central keep behind, then the wider curtain wall in front — the keep's
+        # crenellated top pokes above the wall, the most elaborate silhouette.
+        p.drawPolygon(_crenellated_block(span * 0.39, span * 0.22,
+                                         base - span * 0.52, span * 0.08, span * 0.44, 3))
+        p.drawPolygon(_crenellated_block(span * 0.19, span * 0.62,
+                                         base - span * 0.34, span * 0.09, span * 0.25, 4))
+    elif kind == "fort":
+        # A tall, narrow grey tower — martial, distinct from cream settlements.
+        p.setBrush(_SITE_FORT_FILL)
+        p.drawPolygon(_crenellated_block(span * 0.34, span * 0.32,
+                                         base - span * 0.52, span * 0.10, span * 0.42, 3))
+    elif kind == "town" or tier == 1:
+        # A modest house: a body with a pitched roof.
+        p.setBrush(_SITE_SETTLE_FILL)
+        w, h = span * 0.40, span * 0.24
+        x = (span - w) / 2
+        p.drawRect(QRectF(x, base - h, w, h))
+        roof = QPolygonF([
+            QPointF(x - span * 0.03, base - h),
+            QPointF(span / 2, base - h - span * 0.20),
+            QPointF(x + w + span * 0.03, base - h),
+        ])
+        p.drawPolygon(roof)
+    elif kind == "ruin":
+        # Broken stubs of differing heights with a gap — visibly thrown down.
+        fill = QColor(_SITE_RUIN_FILL)
+        fill.setAlpha(235)
+        p.setBrush(fill)
+        for frac_x, frac_h in ((0.30, 0.20), (0.45, 0.11), (0.58, 0.16)):
+            w = span * 0.11
+            h = span * frac_h
+            p.drawRect(QRectF(span * frac_x, base - h, w, h))
+    else:
+        # Non-settlement site (gate/pass/gateway/volcano/…): a small neutral disc.
+        p.setBrush(_SITE_SETTLE_FILL)
+        d = span * 0.34
+        p.drawEllipse(QRectF((span - d) / 2, (span - d) / 2, d, d))
+
 
 class MapView(QGraphicsView):
     """Pan/zoom over the tile grid; click a tile to select it."""
@@ -107,6 +196,9 @@ class MapView(QGraphicsView):
         self._terrain_item: QGraphicsPixmapItem = self._scene.addPixmap(self._render_terrain())
         self._owner_item: QGraphicsPixmapItem = self._scene.addPixmap(QPixmap())
         self._owner_item.setZValue(1)
+        # The cumulative zoom factor. Set before _add_sites so the initial site
+        # markers and their tier-gated labels (built via refresh_sites) can read it.
+        self._scale = 1.0
         self._add_sites()
         self.refresh_owners()
         # Army markers, rebuilt each tick from the snapshot's hosts (ticket 10).
@@ -116,8 +208,7 @@ class MapView(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.setRenderHints(QPainter.Antialiasing)
         self.setBackgroundBrush(Qt.black)
-        self._scale = 1.0
-        self._update_label_visibility()  # initial tier gating at the default scale
+        self._update_label_visibility()  # re-assert tier gating at the default scale
         self._press_pos: Optional[QPointF] = None
         # Live salience-pulse animations, kept referenced so Qt doesn't collect
         # them mid-flight; each removes its own item and drops itself on finish.
@@ -258,32 +349,32 @@ class MapView(QGraphicsView):
     def _add_sites(self) -> None:
         """Draw a marker + haloed label for each authored site.
 
-        Markers are map objects and scale with the view; labels are annotations
-        that hold a constant screen size (``ItemIgnoresTransformations``) and are
-        tier-gated on zoom (see :meth:`_update_label_visibility`). Each label is
-        kept on ``self._site_labels`` as ``(item, tier)`` so zoom changes can
-        toggle its visibility.
+        Labels are annotations created once here: they hold a constant screen size
+        (``ItemIgnoresTransformations``) and are tier-gated on zoom (see
+        :meth:`_update_label_visibility`). Markers are map objects that scale with
+        the view and depend on the site's mutable ``kind``/``tier`` (ticket 04), so
+        they are (re)built by :meth:`refresh_sites`, which this calls once to seed
+        them and the tick loop calls again whenever a site is founded/grown/razed.
         """
         label_font = QFont()
         label_font.setPointSize(_LABEL_FONT_SIZE)
         label_font.setBold(True)
 
+        # Labels in site order, so refresh_sites can re-pair each with its site's
+        # current tier for gating after a kind/tier change.
+        self._site_label_items: List[QGraphicsItem] = []
         # (label_item, tier) pairs, toggled by _update_label_visibility on zoom.
         self._site_labels: List[tuple] = []
+        # Marker items, rebuilt wholesale by refresh_sites; kept apart from the
+        # labels so a marker rebuild never disturbs the (static) label items.
+        self._site_markers: List[QGraphicsItem] = []
+        # Signature of the last-rendered (kind, tier) per site, so a per-tick
+        # refresh_sites is a cheap no-op until something actually changes.
+        self._site_sig: Optional[tuple] = None
 
         for site in self._grid.sites:
             cx = site.col * TILE + TILE / 2
             cy = site.row * TILE + TILE / 2
-            marker = self._scene.addEllipse(
-                cx - TILE * 0.28,
-                cy - TILE * 0.28,
-                TILE * 0.56,
-                TILE * 0.56,
-                QColor(20, 20, 20),
-                QColor(245, 235, 200),
-            )
-            marker.setZValue(2)
-
             label = self._scene.addText(site.name)
             label.setFont(label_font)
             # Light text over a dark halo reads over any terrain.
@@ -301,7 +392,58 @@ class MapView(QGraphicsView):
             label.setFlag(QGraphicsItem.ItemIgnoresTransformations, True)
             label.setPos(cx + TILE * 0.30, cy - TILE * 0.55)
             label.setZValue(3)
+            self._site_label_items.append(label)
             self._site_labels.append((label, site.tier))
+
+        self.refresh_sites()
+
+    def refresh_sites(self) -> None:
+        """Rebuild the site markers from the live grid so they follow a site's
+        ``kind``/``tier`` as construction founds/grows or war razes it.
+
+        Cheap and idempotent: a change-signature guard skips the rebuild when no
+        site's kind/tier moved, so the tick loop can call this every tick (and a
+        scrub-restore, which also mutates the shared grid, is picked up too). Label
+        gating is re-synced to the new tiers here as well, since a grown or razed
+        site changes which zoom reveals its label.
+        """
+        sig = tuple((s.kind, s.tier) for s in self._grid.sites)
+        if sig == self._site_sig:
+            return
+        self._site_sig = sig
+
+        for item in self._site_markers:
+            self._scene.removeItem(item)
+        self._site_markers = []
+        for site in self._grid.sites:
+            marker = self._site_marker(site)
+            self._scene.addItem(marker)
+            self._site_markers.append(marker)
+
+        # Re-pair each label with its site's current tier (same label objects), so
+        # a town-turned-city (or a razed city) is gated at its new rank.
+        self._site_labels = [
+            (label, site.tier)
+            for label, site in zip(self._site_label_items, self._grid.sites)
+        ]
+        self._update_label_visibility()
+
+    def _site_marker(self, site) -> QGraphicsPixmapItem:
+        """A scene pixmap for one site's marker, drawn by kind/tier and placed on
+        the site's tile (z=2 — below armies and labels, above the owner tint)."""
+        span = TILE * _SITE_SS
+        pixmap = QPixmap(span, span)
+        pixmap.fill(Qt.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing)
+        _draw_site_symbol(painter, site.kind, site.tier, span)
+        painter.end()
+
+        item = QGraphicsPixmapItem(pixmap)
+        item.setScale(1.0 / _SITE_SS)
+        item.setPos(site.col * TILE, site.row * TILE)
+        item.setZValue(2)
+        return item
 
     def _update_label_visibility(self) -> None:
         """Tier-gate the site labels for the current zoom (``self._scale``).

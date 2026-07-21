@@ -249,6 +249,10 @@ class MainWindow(QMainWindow):
             self._fire_pulses(events)
             self._fire_battle_markers(snapshot, events)
         self._map.refresh_armies(self._armies_in(snapshot))
+        # Follow site kind/tier churn (founded/grown/razed, ticket 04). Cheap: the
+        # view skips the rebuild unless a marker actually changed. Runs on scrubs
+        # too (which restore the shared grid) since those carry no events.
+        self._map.refresh_sites()
         self._year_label.setText(format_tick(snapshot.tick))
         # Cap the annals (which are year-grained) when scrubbed behind the
         # frontier; live ticks are >= it. Restoring an earlier tick shows that
