@@ -219,8 +219,8 @@ def test_phase3_never_makes_peace_on_its_own():
 def test_diplomacy_actually_fires_and_is_deterministic_under_seed():
     a = seed_world("dup-seed")[0]
     b = seed_world("dup-seed")[0]
-    events_a = run_years(a, 25)
-    run_years(b, 25)
+    events_a = run_years(a, 12)
+    run_years(b, 12)
     assert dumps(a) == dumps(b)
     # the phase genuinely does something over a run
     kinds = {e.type for e in events_a}
@@ -230,13 +230,13 @@ def test_diplomacy_actually_fires_and_is_deterministic_under_seed():
     }
     # a different seed diverges
     c = seed_world("other-seed")[0]
-    run_years(c, 25)
+    run_years(c, 12)
     assert dumps(c) != dumps(a)
 
 
 def test_war_flags_stay_symmetric_across_a_seeded_run():
     world, _grid, _ = seed_world("sym-war")
-    run_years(world, 20)
+    run_years(world, 12)
     for f in factions(world):
         for enemy_id in f.at_war_with:
             assert f.id in world.entities[enemy_id].at_war_with

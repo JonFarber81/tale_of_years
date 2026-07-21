@@ -11,7 +11,7 @@ dependencies = []
 
 [project.optional-dependencies]
 ui = ["PySide6>=6.5"]
-dev = ["pytest>=7", "PySide6>=6.5"]
+dev = ["pytest>=7", "pytest-xdist>=3", "PySide6>=6.5"]
 
 [project.scripts]
 arda-sim = "arda_sim.driver:main"
@@ -29,3 +29,8 @@ arda_sim = ["scenarios/*.json"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+# Run the suite in parallel across all cores (pytest-xdist). The tests are
+# independent and the slow ones each seed the full grid and run the sim for
+# years, so fanning them out cuts wall-clock several-fold. Requires the `dev`
+# extra (pytest-xdist); override with `-n0` to run serially (e.g. for --pdb).
+addopts = "-n auto"

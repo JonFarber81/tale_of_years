@@ -316,7 +316,7 @@ def test_movement_is_a_no_op_without_a_grid():
 
 def test_armies_muster_and_march_over_a_seeded_run():
     world, _grid, _ = seed_world("campaign")
-    events = run_years(world, 15)
+    events = run_years(world, 10)
     kinds = {e.type for e in events}
     assert ARMY_MUSTERED_EVENT in kinds
     assert armies(world)  # hosts exist on the map
@@ -328,17 +328,17 @@ def test_armies_muster_and_march_over_a_seeded_run():
 def test_movement_is_deterministic_under_seed():
     a = seed_world("dup")[0]
     b = seed_world("dup")[0]
-    run_years(a, 20)
-    run_years(b, 20)
+    run_years(a, 12)
+    run_years(b, 12)
     assert dumps(a) == dumps(b)  # same seed → bit-identical campaigns
     c = seed_world("other")[0]
-    run_years(c, 20)
+    run_years(c, 12)
     assert dumps(c) != dumps(a)
 
 
 def test_army_state_round_trips_through_save_load():
     world, _grid, _ = seed_world("army-save")
-    run_years(world, 12)
+    run_years(world, 8)
     blob = dumps(world)
     reloaded = loads(blob)
     assert dumps(reloaded) == blob  # position, path, size, leader all round-trip

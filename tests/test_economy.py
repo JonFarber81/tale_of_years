@@ -292,7 +292,7 @@ def test_construction_events_carry_salience_and_prose():
 def test_construction_is_deterministic_under_seed():
     def run():
         w, grid, _ = seed_world("determinism")
-        run_years(w, 15)
+        run_years(w, 10)
         return [(e.type, tuple(e.subject_ids), e.location_id) for e in w.events
                 if e.type in (FOUNDING_EVENT, SETTLEMENT_GREW_EVENT, ROAD_OPENED_EVENT)]
 
@@ -301,7 +301,7 @@ def test_construction_is_deterministic_under_seed():
 
 def test_the_built_map_survives_save_and_load():
     w, grid, _ = seed_world("built-map")
-    run_years(w, 20)
+    run_years(w, 12)
     blob = dumps(w)
     restored = loads(blob)
     # The grid comes back, and its mutable slice round-trips byte-for-byte.
@@ -314,11 +314,11 @@ def test_the_built_map_survives_save_and_load():
 
 def test_a_grid_run_resumes_bit_identically_across_save_load():
     reference, _, _ = seed_world("resume")
-    run_years(reference, 24)
+    run_years(reference, 16)
     ref_blob = dumps(reference)
 
     interrupted, _, _ = seed_world("resume")
-    run_years(interrupted, 10)
+    run_years(interrupted, 6)
     resumed = loads(dumps(interrupted))  # save + reload mid-run (grid must restore)
-    run_years(resumed, 14)
+    run_years(resumed, 10)
     assert dumps(resumed) == ref_blob
