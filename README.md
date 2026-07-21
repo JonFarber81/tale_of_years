@@ -9,7 +9,7 @@ accurate starting roster, on the pictorial Middle-earth map: characters are born
 and die, crowns pass, realms rise and are absorbed, factions warm to allies and
 declare war. You watch it stream past in an annals feed and on coloured
 territory; you can pause, change speed, step a month, scrub the timeline, and
-click any power to read its dossier and full history.
+click any power — or any event in the annals — to read its dossier.
 
 It *tends* toward canon without being scripted. A single **canonicity** knob
 (`0..1`) weights the dynamics — at `0` history runs free, at `1` it leans hard
@@ -57,14 +57,14 @@ contract):
 | 2 · succession | a fallen leader's heir resolved by the realm's succession rule; failed lines fragment or are absorbed | ✅ built |
 | 3 · faction decisions | each power scores a weighted-utility intent menu (muster / attack / fortify / seek-pact / build) | ✅ built |
 | 4 · diplomacy & vassalage | disposition drifts toward a frozen canon baseline; treaties, marriages, vassalage, provider-pacts; the war flag | ✅ built |
-| 5 · movement | armies march the route layer | 🔜 planned |
-| 6 · war & battles | musters, sieges, conquest, razing | 🔜 planned |
-| 7 · construction & economy | founding and growing settlements against a treasury | 🔜 planned |
+| 5 · movement | armies march tile-to-tile under attrition and supply lag | ✅ built |
+| 6 · war & battles | field battles, sieges, conquest, razing, provider hosts, coastal raids | ✅ built |
+| 7 · construction & economy | income to a treasury; founding, growing, and roads where there is peace | ✅ built |
 | 8 · Sauron's rise | the shadow lengthens; canon pressure responds to the One Ring | 🔜 planned |
 
 Also built: the **tile substrate** and the authored **TA 2965 scenario dataset**
 (regions, sites, routes for NW Middle-earth), the **PySide6/Qt UI shell** (map
-canvas, play/pause/step/scrub timeline, virtualized annals feed, inspection
+canvas, play/pause/step/scrub timeline, interactive annals feed, inspection
 dock), and **save / load** with exact RNG resume. Still to come: the **One Ring**
 as a tracked object, and packaging.
 
@@ -91,6 +91,16 @@ arda-sim-ui --seed fellowship --canonicity 1.0
 Play/pause, change speed, step a month, scrub the timeline, and click any realm's
 territory to inspect its leader, bloodline, diplomacy, and recent history.
 
+The **annals feed** reads as a chronicle, not a log: events group under year
+dividers, colored by category bucket (**war** red, **diplomacy** blue,
+**dynasty** purple, **construction** green) with important events bold and the
+rest dimmed under *Show all*. The bucket legend doubles as a filter — uncheck a
+chip to hide that category. Clicking an event opens its **dossier** in the
+Inspection dock (battles, sieges, conquests, and razings render as composed
+prose from the recorded facts), and an event that happened *somewhere* — marked
+with a pin — also pans the map to the spot with a transient pulse. Zoom runs
+from the whole map just fitting the window down to street level.
+
 ### Run it headless
 
 The sim needs no display — advance a seeded run and dump its events:
@@ -105,7 +115,7 @@ arda-sim --load run.json --years 50                        # resume, bit-identic
 
 ```bash
 pip install -e ".[dev]"
-pytest            # ~165 tests; the whole sim is exercised headless
+pytest            # ~250 tests; the whole sim is exercised headless
 ```
 
 Determinism is a first-class, tested property: runs are compared for
@@ -128,6 +138,9 @@ src/arda_sim/
   factions.py       powers, territory, and the phase-2 faction turn
   succession.py     dynasties & the passing of crowns
   diplomacy.py      disposition, stance, treaties, vassalage, the war flag
+  armies.py         hosts: muster, march, attrition, supply lag
+  war.py            battles, sieges, conquest, razing, providers, raids
+  economy.py        treasury income; founding, growing, roads
   chronicle.py      salience scoring + prose rendering + the annals feed
   scenarios/        the authored TA 2965 dataset
   ui/               PySide6/Qt shell (map, timeline, annals, inspection)
