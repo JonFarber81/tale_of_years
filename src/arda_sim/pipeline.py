@@ -18,16 +18,13 @@ from typing import Callable, List, Tuple
 from .characters import aging_births_deaths as _aging_births_deaths  # phase 1
 from .chronicle import finalize_event
 from .entities import Event
+from .factions import faction_decisions as _faction_decisions  # phase 2
 from .world import World
 
 System = Callable[[World, random.Random], List[Event]]
 
 # Placeholder event type emitted once per tick until systems produce real events.
 HEARTBEAT_EVENT_TYPE = "tick"
-
-
-def _faction_decisions(world: World, rng: random.Random) -> List[Event]:  # phase 2
-    return []
 
 
 def _diplomacy(world: World, rng: random.Random) -> List[Event]:  # phase 3

@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 pytest.importorskip("PySide6")
 
-from arda_sim.tiles import Terrain  # noqa: E402
+from arda_sim.tiles import UNOWNED, Terrain  # noqa: E402
 
 
 # --- theme colours: no QApplication needed ----------------------------------
@@ -66,7 +66,7 @@ from PySide6.QtCore import QPointF  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from arda_sim.scenarios import load_scenario  # noqa: E402
-from arda_sim.ui.app import _seed_demo_territory, build_window  # noqa: E402
+from arda_sim.ui.app import build_window  # noqa: E402
 from arda_sim.ui.map_view import TILE, MapView  # noqa: E402
 
 
@@ -136,13 +136,21 @@ def test_inspection_describes_clicked_tile(qapp):
         window.close()
 
 
-def test_seed_demo_territory_creates_a_border(qapp):
-    grid = load_scenario("gondor_stub")
-    names = _seed_demo_territory(grid)
-    assert names == {1: "Gondor", 2: "Mordor"}
-    # Gondor (1) and Mordor (2) both own tiles, so a frontier exists somewhere.
-    owned = {grid.owner_at(c, r) for r in range(grid.height) for c in range(grid.width)}
-    assert {1, 2} <= owned
-    assert any(
-        grid.is_border(c, r) for r in range(grid.height) for c in range(grid.width)
-    )
+def test_seeded_factions_paint_territory_with_a_frontier(qapp):
+    # Real factions (ticket 07) own regions on the shipped map, so several
+    # factions hold ground and a derived frontier exists somewhere.
+    window = build_window("fellowship")
+    try:
+        grid = window._grid
+        owned = {
+            grid.owner_at(c, r)
+            for r in range(grid.height)
+            for c in range(grid.width)
+        } - {UNOWNED}
+        assert len(owned) >= 5  # many powers hold territory
+        assert all(fid in window._faction_names for fid in owned)  # every tint labels a faction
+        assert any(
+            grid.is_border(c, r) for r in range(grid.height) for c in range(grid.width)
+        )
+    finally:
+        window.close()
