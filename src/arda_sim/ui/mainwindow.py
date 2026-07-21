@@ -71,7 +71,7 @@ class MainWindow(QMainWindow):
         # read cross-thread from the worker-owned Playback). Nothing simulated yet,
         # so it sits one tick before the first tick (tick 0).
         self._frontier = -1
-        self.setWindowTitle("arda_history — the Third Age unfolds")
+        self.setWindowTitle("The Tale of Years — the Third Age unfolds")
 
         self._map = MapView(grid, self)
         self._map.tileClicked.connect(self._on_tile_clicked)
