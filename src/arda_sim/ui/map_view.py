@@ -18,11 +18,20 @@ from __future__ import annotations
 from typing import Dict, Iterable, List, Optional
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QVariantAnimation, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPixmap, QPolygonF
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QPainter,
+    QPainterPath,
+    QPen,
+    QPixmap,
+    QPolygonF,
+)
 from PySide6.QtWidgets import (
     QGraphicsDropShadowEffect,
     QGraphicsEllipseItem,
     QGraphicsItem,
+    QGraphicsPathItem,
     QGraphicsPixmapItem,
     QGraphicsPolygonItem,
     QGraphicsScene,
@@ -209,6 +218,8 @@ class MapView(QGraphicsView):
         self._army_items: List[QGraphicsItem] = []
         # The One Ring marker, redrawn each tick from the snapshot's Ring (ticket 13).
         self._ring_item: Optional[QGraphicsItem] = None
+        # The Ring's errand path overlay, when it is bound for a goal (issue #23).
+        self._ring_path_item: Optional[QGraphicsItem] = None
 
         self.setDragMode(QGraphicsView.ScrollHandDrag)  # left-drag to pan
         self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
@@ -288,11 +299,14 @@ class MapView(QGraphicsView):
         The Ring is always somewhere definite — it draws from its bearer's seat
         when borne, or from where it lies when not (its ``col``/``row`` already
         resolves both, kept in step by the Ring phase). A small golden annulus on
-        its own layer above the hosts, so the viewer can always find it.
+        its own layer above the hosts, so the viewer can always find it. When the
+        Ring is bound on an errand, its planned path trails behind as an overlay
+        (issue #23), cleared the moment the errand ends.
         """
         if self._ring_item is not None:
             self._scene.removeItem(self._ring_item)
             self._ring_item = None
+        self._refresh_ring_path(ring)
         if ring is None:
             return
         ss = 4
@@ -320,6 +334,31 @@ class MapView(QGraphicsView):
         item.setZValue(5)  # above hosts (z=4); the eye should always find the Ring
         self._scene.addItem(item)
         self._ring_item = item
+
+    def _refresh_ring_path(self, ring: Optional[Ring]) -> None:
+        """Draw (or clear) the Ring's errand path — its planned route to a goal.
+
+        A thin dashed gold polyline from the Ring's tile through each queued path
+        tile, on the marker's layer. Rebuilt each tick from ``ring.path``; an
+        idle Ring (no path) clears the overlay, so a finished or abandoned errand
+        leaves no trail."""
+        if self._ring_path_item is not None:
+            self._scene.removeItem(self._ring_path_item)
+            self._ring_path_item = None
+        if ring is None or not ring.path:
+            return
+        half = TILE / 2
+        path = QPainterPath(QPointF(ring.col * TILE + half, ring.row * TILE + half))
+        for col, row in ring.path:
+            path.lineTo(col * TILE + half, row * TILE + half)
+        item = QGraphicsPathItem(path)
+        pen = QPen(_RING_GOLD, TILE * 0.12)
+        pen.setStyle(Qt.DashLine)
+        pen.setCapStyle(Qt.RoundCap)
+        item.setPen(pen)
+        item.setZValue(4)  # under the Ring marker (z=5), over sites/hosts
+        self._scene.addItem(item)
+        self._ring_path_item = item
 
     def _march_cue(self, army: Army) -> Optional[QGraphicsPolygonItem]:
         """A subtle direction arrowhead for a host mid-march, else ``None``.

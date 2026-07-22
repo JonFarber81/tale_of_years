@@ -525,6 +525,20 @@ def test_dossier_html_primitives(qapp):
     assert "<b>DIPLOMACY</b>" in section("Diplomacy")
 
 
+def test_sparkline_traces_a_series_shape(qapp):
+    from arda_sim.ui.dossier_html import sparkline
+
+    assert sparkline([]) == ""  # nothing to trace
+    assert sparkline([7]) == "▁"  # a single point sits at the floor
+    assert sparkline([4, 4, 4]) == "▁▁▁"  # a flat series is all floor, never blank
+    rising = sparkline([0, 1, 2, 3, 4, 5, 6, 7])
+    assert rising[0] == "▁" and rising[-1] == "█"  # min→floor, max→ceiling
+    assert len(rising) == 8
+    # A series longer than the width is sampled down, endpoints preserved.
+    long = sparkline(list(range(100)), width=10)
+    assert len(long) == 10 and long[0] == "▁" and long[-1] == "█"
+
+
 def test_index_table_lays_out_headers_and_rows(qapp):
     from arda_sim.ui.dossier_html import index_table
 
@@ -1278,6 +1292,93 @@ def test_ring_page_is_addressable(qapp):
         window._codex.navigate(CodexAddress("ring", "one"))
         text = window._codex.browser.toPlainText()
         assert "THE ONE RING" in text and "Possession" in text
+    finally:
+        window.close()
+
+
+def test_ring_page_shows_bearer_timeline_trend_and_errand(qapp):
+    from arda_sim.ring import RING_TRANSFERRED_EVENT, RingTransfer
+
+    window = build_window("fellowship")  # the Ring seeded with Bilbo
+    try:
+        # Advance a few ticks so the corruption/pull trend accrues samples.
+        for _ in range(3):
+            snap, evs = window._playback.advance()
+            window._on_tick_advanced(snap, evs)
+        ring = window._ring_in(window._latest_snapshot)
+        seed_bearer_id = ring.bearer_history[0]
+
+        # A second bearer, acquired by gift — a transfer event drives the timeline.
+        other = next(
+            e
+            for eid, e in window._latest_snapshot.entities.items()
+            if e.kind == "character" and eid != seed_bearer_id
+        )
+        window._events.append(
+            Event(
+                id=99999,
+                year=window._display_year,
+                type=RING_TRANSFERRED_EVENT,
+                subject_ids=[ring.id, seed_bearer_id, other.id],
+                payload={
+                    "mode": RingTransfer.GIFT.value,
+                    "from_bearer_id": seed_bearer_id,
+                    "to_bearer_id": other.id,
+                },
+            )
+        )
+        # An errand afoot: bound for a named site, drawn as a link.
+        goal = window._grid.sites[0]
+        ring.goal_site_id = goal.id
+        ring.path = [[ring.col + 1, ring.row]]
+
+        html = window.describe_ring(ring)
+        plain = html  # assertions target the raw HTML (links + glyphs)
+
+        # Bearer timeline: the second bearer, its acquisition mode, linked out.
+        assert "Bearers".upper() in plain.upper()
+        assert "codex://character/%d" % other.id in plain and "via gift" in plain
+        assert "present" in plain  # the current bearer's open-ended stint
+        # Trend: a sparkline block glyph over the accrued series.
+        assert "Trend".upper() in plain.upper()
+        assert any(block in plain for block in "▁▂▃▄▅▆▇█")
+        # Errand: the goal site named and linked.
+        assert "codex://site/%d" % goal.id in plain and goal.name in plain
+    finally:
+        window.close()
+
+
+def test_ring_errand_path_overlay_draws_and_clears(qapp):
+    window = build_window("fellowship")
+    try:
+        snap, evs = window._playback.advance()
+        window._on_tick_advanced(snap, evs)
+        ring = window._ring_in(window._latest_snapshot)
+        assert window._map._ring_path_item is None  # no errand at seed → no trail
+
+        ring.path = [[ring.col + 1, ring.row], [ring.col + 2, ring.row]]
+        window._map.refresh_ring(ring)
+        assert window._map._ring_path_item is not None  # the planned route is drawn
+
+        ring.path = []  # errand ended
+        window._map.refresh_ring(ring)
+        assert window._map._ring_path_item is None  # the trail is cleared
+    finally:
+        window.close()
+
+
+def test_ring_page_errand_and_trend_absent_when_idle(qapp):
+    window = build_window("fellowship")
+    try:
+        snap, evs = window._playback.advance()
+        window._on_tick_advanced(snap, evs)  # a single sample: no trend line yet
+        ring = window._ring_in(window._latest_snapshot)
+        ring.goal_site_id = None  # no errand
+        html = window.describe_ring(ring)
+        assert "ERRAND" not in html.upper()  # omitted, not shown empty
+        assert "TREND" not in html.upper()  # one sample can't trace a line
+        # The founding bearer still shows, held to the present.
+        assert "BEARERS" in html.upper() and "present" in html
     finally:
         window.close()
 
