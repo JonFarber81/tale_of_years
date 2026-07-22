@@ -540,7 +540,7 @@ def test_tile_click_renders_html_dossier_into_the_browser(qapp):
         site = window._grid.site_id_of("Minas Tirith")
         tile = next(s for s in window._grid.sites if s.id == site)
         window._on_tile_clicked(tile.col, tile.row)
-        plain = window._inspection.toPlainText()
+        plain = window._codex.browser.toPlainText()
         assert "SITE" in plain and "Minas Tirith" in plain  # the site headlines
         html = window.describe_tile(tile.col, tile.row)
         assert "<table" in html  # genuinely rich text, not escaped plain text
@@ -677,7 +677,7 @@ def test_faction_dossier_wears_its_map_color(qapp):
         window.close()
 
 
-def test_annals_click_pushes_dossier_into_inspection_dock(qapp):
+def test_annals_click_pushes_dossier_into_the_codex(qapp):
     window = build_window("fellowship")
     window._map.focus_tile = lambda col, row: None
     try:
@@ -686,10 +686,114 @@ def test_annals_click_pushes_dossier_into_inspection_dock(qapp):
         )
         model = window._annals_model
         window._on_annals_event_clicked(model.index(1))  # the event row
-        shown = window._inspection.toPlainText()
+        shown = window._codex.browser.toPlainText()
         assert "EVENT · DIPLOMACY · NOTABLE" in shown and f"TA {START_YEAR}" in shown
-        window._on_annals_event_clicked(model.index(0))  # header: dock untouched
-        assert "DIPLOMACY" in window._inspection.toPlainText()
+        window._on_annals_event_clicked(model.index(0))  # header: pane untouched
+        assert "DIPLOMACY" in window._codex.browser.toPlainText()
+    finally:
+        window.close()
+
+
+def test_map_clicks_enter_codex_history_and_back_returns(qapp):
+    # Two tile clicks are two pages; Back re-renders the first (issue #36).
+    from arda_sim.ui.codex import CodexAddress
+
+    window = build_window("fellowship")
+    try:
+        mt = next(s for s in window._grid.sites if s.name == "Minas Tirith")
+        barad = next(s for s in window._grid.sites if "Barad" in s.name)
+        window._on_tile_clicked(mt.col, mt.row)
+        window._on_tile_clicked(barad.col, barad.row)
+        assert window._codex.history.current == CodexAddress(
+            "tile", f"{barad.col},{barad.row}"
+        )
+        assert barad.name in window._codex.browser.toPlainText()
+        window._codex.go_back()
+        assert mt.name in window._codex.browser.toPlainText()
+        window._codex.go_forward()
+        assert barad.name in window._codex.browser.toPlainText()
+    finally:
+        window.close()
+
+
+def test_omnibox_search_renders_a_results_page_of_links(qapp):
+    # Enter in the omnibox navigates to a search page; its hits are codex://
+    # links, and following one lands on the entity's page (still in history).
+    window = build_window("fellowship")
+    try:
+        window._codex.omnibox.setText("minas")
+        window._codex._on_search()
+        text = window._codex.browser.toPlainText()
+        assert "SEARCH" in text and "Minas Tirith" in text
+        mt = window._grid.site_id_of("Minas Tirith")
+        assert f'href="codex://site/{mt}"' in window._codex.browser.toHtml()
+        window._codex.open_url(f"codex://site/{mt}")
+        assert "SITE" in window._codex.browser.toPlainText()
+        window._codex.go_back()  # the search page is an ordinary history entry
+        assert "SEARCH" in window._codex.browser.toPlainText()
+    finally:
+        window.close()
+
+
+def test_codex_anchor_clicks_navigate_pages(qapp):
+    # The browser's anchorClicked path (a QUrl, not a string) navigates too —
+    # the mechanism every future in-dossier link (#22) rides on.
+    from PySide6.QtCore import QUrl
+
+    window = build_window("fellowship")
+    try:
+        gondor = next(k for k, v in window._faction_names.items() if v == "Gondor")
+        snap, _ = window._playback.advance()
+        window._on_tick_advanced(snap, [])
+        window._codex.open_url(QUrl(f"codex://faction/{gondor}"))
+        assert "Gondor" in window._codex.browser.toPlainText()
+        # Foreign schemes are ignored, not navigated.
+        before = window._codex.history.current
+        window._codex.open_url(QUrl("https://example.com/"))
+        assert window._codex.history.current == before
+    finally:
+        window.close()
+
+
+def test_index_links_render_stub_pages(qapp):
+    from arda_sim.ui.codex import CodexAddress
+
+    window = build_window("fellowship")
+    try:
+        for name, marker in (("armies", "#17"), ("factions", "#19"), ("wars", "#20")):
+            window._codex.navigate(CodexAddress("index", name))
+            text = window._codex.browser.toPlainText()
+            assert "INDEX" in text and name.title() in text and marker in text
+    finally:
+        window.close()
+
+
+def test_dead_codex_links_render_a_no_such_page_notice(qapp):
+    from arda_sim.ui.codex import CodexAddress
+
+    window = build_window("fellowship")
+    try:
+        for address in (
+            CodexAddress("faction", "999999"),  # no such entity
+            CodexAddress("tile", "banana"),  # malformed ident
+            CodexAddress("mystery", "1"),  # unknown kind
+        ):
+            window._codex.navigate(address)
+            assert "No such page" in window._codex.browser.toPlainText()
+    finally:
+        window.close()
+
+
+def test_ring_page_is_addressable(qapp):
+    from arda_sim.ui.codex import CodexAddress
+
+    window = build_window("fellowship")  # seeded: the Ring is with Bilbo
+    try:
+        snap, _ = window._playback.advance()
+        window._on_tick_advanced(snap, [])
+        window._codex.navigate(CodexAddress("ring", "one"))
+        text = window._codex.browser.toPlainText()
+        assert "THE ONE RING" in text and "Possession" in text
     finally:
         window.close()
 

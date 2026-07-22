@@ -80,6 +80,11 @@ def para(html_body: str) -> str:
     return f'<p style="margin-top: 4px; margin-bottom: 4px">{html_body}</p>'
 
 
+def dim_para(text: str) -> str:
+    """A dimmed aside paragraph (escaped) — notices, locators, stub blurbs."""
+    return para(f'<span style="color: {DIM}">{esc(text)}</span>')
+
+
 def text_lines(text: str) -> str:
     """Escape a plain multi-line text block into a single paragraph."""
     return para("<br>".join(esc(line) for line in text.splitlines()))

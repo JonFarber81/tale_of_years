@@ -343,10 +343,16 @@ has detail but no single place.
 
 **Event dossier** — the detail view of a single event: its year, bucket,
 importance, chronicle sentence, and the structured facts behind it (for a
-battle: the sides, strengths, casualties, deaths). Shown in the Inspection
-dock; the deep reading of what the feed states in one line.
+battle: the sides, strengths, casualties, deaths). A Codex page; the deep
+reading of what the feed states in one line.
 
 **Dossier subject** — the one entity a map click resolves to and the
-Inspection dock headlines, chosen most-specific-first: a host standing on
+Codex's tile page headlines, chosen most-specific-first: a host standing on
 the tile, else a site there, else the owning faction, else the bare tile.
 Whatever is not the subject renders only as trimmed *context* beneath it.
+
+**The Codex** — the single browser pane where every non-map surface lives
+(ADR-0014): dossiers, index tables, and search results are all *pages*,
+addressed as `codex://<kind>/<id>`, with browser-style back/forward history
+and an omnibox. The Annals feed sits apart, as a strip along the window's
+foot; its entries navigate the Codex.

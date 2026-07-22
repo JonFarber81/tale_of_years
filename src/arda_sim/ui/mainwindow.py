@@ -1,4 +1,4 @@
-"""The main window: map canvas, timeline toolbar, annals dock, inspection dock.
+"""The main window: map canvas, timeline toolbar, annals strip, Codex pane.
 
 Owns the background sim thread and translates its ``(snapshot, events)`` per-tick
 stream into UI updates. Playback commands go to the worker as queued signals
@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QPushButton,
     QSlider,
-    QTextBrowser,
     QToolBar,
     QVBoxLayout,
     QWidget,
@@ -54,10 +53,12 @@ from .annals_style import (
     types_in_bucket,
 )
 from . import tile_render
+from .codex import CodexAddress, CodexPane, render_search_page, search_matches
 from .dossier_html import (
     DIM,
     NEUTRAL_ACCENT,
     banner,
+    dim_para,
     esc,
     para,
     pre_block,
@@ -211,18 +212,23 @@ class MainWindow(QMainWindow):
         panel_layout.setSpacing(2)
         panel_layout.addLayout(chip_row)
         panel_layout.addWidget(annals_view)
+        # The Annals strip spans the window's foot (ADR-0014): the feed is the
+        # chronicle's ticker, freeing the right side for the one Codex pane.
+        # Both bottom corners belong to it explicitly — Qt's default corner
+        # ownership would let the Codex dock reach down and cut the strip short.
+        self.setCorner(Qt.BottomLeftCorner, Qt.BottomDockWidgetArea)
+        self.setCorner(Qt.BottomRightCorner, Qt.BottomDockWidgetArea)
         annals_dock = QDockWidget("Annals", self)
         annals_dock.setWidget(annals_panel)
-        self.addDockWidget(Qt.RightDockWidgetArea, annals_dock)
+        self.addDockWidget(Qt.BottomDockWidgetArea, annals_dock)
 
-        # Rich-text dossiers (inspection-ui ticket 01): scrollable, selectable,
-        # and the anchor-capable surface the wishlisted cross-linking wants.
-        self._inspection = QTextBrowser(self)
-        self._inspection.setOpenLinks(False)
-        self._inspection.setPlaceholderText("Select something on the map.")
-        inspection_dock = QDockWidget("Inspection", self)
-        inspection_dock.setWidget(self._inspection)
-        self.addDockWidget(Qt.RightDockWidgetArea, inspection_dock)
+        # The Codex (ADR-0014, #36): the single browser pane where every
+        # dossier and index is a page. The pane owns navigation (history,
+        # omnibox, links); this window owns what pages say (_render_page).
+        self._codex = CodexPane(self._render_page, self)
+        codex_dock = QDockWidget("Codex", self)
+        codex_dock.setWidget(self._codex)
+        self.addDockWidget(Qt.RightDockWidgetArea, codex_dock)
 
     def _start_worker(self, playback: Playback) -> None:
         self._thread = QThread(self)
@@ -328,17 +334,18 @@ class MainWindow(QMainWindow):
     # -- annals -> map ---------------------------------------------------
 
     def _on_annals_event_clicked(self, index) -> None:
-        """An annals row click: the event dossier, plus a map jump if placed.
+        """An annals row click: the event's Codex page, plus a map jump if placed.
 
-        One gesture, two payoffs (annals-ui spec): every event row pushes its
-        dossier into the Inspection dock; a placed event also pans the map to
-        its site. Space-only by decision — the timeline, scrub cap, and filter
-        are untouched. A year-header row does nothing.
+        One gesture, two payoffs (annals-ui spec): every event row navigates
+        the Codex to the event's page (so it sits in history like any other);
+        a placed event also pans the map to its site. Space-only by decision —
+        the timeline, scrub cap, and filter are untouched. A year-header row
+        does nothing.
         """
         event = self._annals_model.data(index, EventRole)
         if event is None:
             return
-        self._inspection.setHtml(self.describe_event(event))
+        self._codex.navigate(CodexAddress("event", str(event.id)))
         if event.location_id is None:
             return
         site = self._grid.site_by_id(event.location_id)
@@ -366,10 +373,131 @@ class MainWindow(QMainWindow):
             return "an unknown power"
         return self._faction_names.get(faction_id, f"faction {faction_id}")
 
-    # -- map -> inspection ----------------------------------------------
+    # -- the codex: addresses -> pages -----------------------------------
 
     def _on_tile_clicked(self, col: int, row: int) -> None:
-        self._inspection.setHtml(self.describe_tile(col, row))
+        self._codex.navigate(CodexAddress("tile", f"{col},{row}"))
+
+    def _render_page(self, address: CodexAddress) -> Optional[str]:
+        """The Codex's registry: resolve an address to page HTML.
+
+        ``None`` means a dead link (unknown kind, malformed ident, or an
+        entity absent from the displayed year) — the pane renders its own
+        no-such-page notice, so renderers stay total and never raise.
+        """
+        renderers = {
+            "tile": self._tile_page,
+            "site": self._site_page,
+            "faction": self._faction_page,
+            "host": self._host_page,
+            "event": self._event_page,
+            "ring": self._ring_page,
+            "index": self._index_page,
+            "search": self._search_page,
+        }
+        renderer = renderers.get(address.kind)
+        return renderer(address.ident) if renderer else None
+
+    @staticmethod
+    def _int_ident(ident: str) -> Optional[int]:
+        """An entity-id ident, or None for garbage (a dead link, not a crash)."""
+        try:
+            return int(ident)
+        except ValueError:
+            return None
+
+    def _tile_page(self, ident: str) -> Optional[str]:
+        try:
+            col, row = (int(part) for part in ident.split(","))
+        except ValueError:
+            return None
+        if not (0 <= col < self._grid.width and 0 <= row < self._grid.height):
+            return None
+        return self.describe_tile(col, row)
+
+    def _site_page(self, ident: str) -> Optional[str]:
+        site_id = self._int_ident(ident)
+        site = self._grid.site_by_id(site_id) if site_id is not None else None
+        return self.describe_site(site) if site is not None else None
+
+    def _faction_page(self, ident: str) -> Optional[str]:
+        faction_id = self._int_ident(ident)
+        faction = self._faction(faction_id) if faction_id is not None else None
+        return self.describe_faction(faction) if faction is not None else None
+
+    def _host_page(self, ident: str) -> Optional[str]:
+        army_id = self._int_ident(ident)
+        if army_id is None or self._latest_snapshot is None:
+            return None
+        army = self._latest_snapshot.entity(army_id)
+        return self.describe_army(army) if isinstance(army, Army) else None
+
+    def _event_page(self, ident: str) -> Optional[str]:
+        event_id = self._int_ident(ident)
+        if event_id is None:
+            return None
+        # The feed retains every delivered event, filtered or not, so it is
+        # the one lookup path an event address needs.
+        event = self._annals_model.event_by_id(event_id)
+        return self.describe_event(event) if event is not None else None
+
+    def _ring_page(self, ident: str) -> Optional[str]:
+        del ident  # there is only the One
+        if self._latest_snapshot is None:
+            return None
+        ring = self._ring_in(self._latest_snapshot)
+        return self.describe_ring(ring) if ring is not None else None
+
+    # What each index will hold; the tables land with their own issues.
+    _INDEX_BLURBS = {
+        "armies": "The muster-roll of every host afield. Its table arrives with #17.",
+        "factions": "The powers of the age, compared. Its table arrives with #19.",
+        "wars": "The wars and bonds between realms. Its table arrives with #20.",
+    }
+
+    def _index_page(self, ident: str) -> Optional[str]:
+        blurb = self._INDEX_BLURBS.get(ident)
+        if blurb is None:
+            return None
+        return banner("Index", ident.title()) + dim_para(blurb)
+
+    def _search_page(self, query: str) -> str:
+        return render_search_page(
+            query, search_matches(query, self._search_candidates())
+        )
+
+    def _search_candidates(self):
+        """Every searchable (name, detail, address), factions → hosts → sites.
+
+        Shell scope (#36): entities with proper names in the displayed
+        snapshot plus the grid's sites — enough to prove the plumbing.
+        Characters join with #18's finder.
+        """
+        candidates = []
+        if self._latest_snapshot is not None:
+            for _id, entity in sorted(self._latest_snapshot.entities.items()):
+                if isinstance(entity, Faction):
+                    candidates.append(
+                        (
+                            entity.name,
+                            entity.faction_kind,
+                            CodexAddress("faction", str(entity.id)),
+                        )
+                    )
+            for army in self._armies_in(self._latest_snapshot):
+                holder = self._faction_names.get(army.faction_id)
+                candidates.append(
+                    (
+                        army.name,
+                        f"host of {holder}" if holder else "host",
+                        CodexAddress("host", str(army.id)),
+                    )
+                )
+        for site in self._grid.sites:
+            candidates.append(
+                (site.name, site.kind, CodexAddress("site", str(site.id)))
+            )
+        return candidates
 
     def describe_tile(self, col: int, row: int) -> str:
         """The dossier (HTML) a map click renders, most-specific-first.

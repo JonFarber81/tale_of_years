@@ -98,6 +98,14 @@ class AnnalsModel(QAbstractListModel):
         """How many *event* rows show (headers excluded)."""
         return sum(1 for kind, _ in self._rows if kind == _EVENT)
 
+    def event_by_id(self, event_id: int) -> Optional[Event]:
+        """The received event with this id, visible or filtered out, or None.
+
+        The Codex's event pages (#36) resolve ``codex://event/<id>`` through
+        this: the feed is the one place every delivered event is retained.
+        """
+        return next((e for e in self._events if e.id == event_id), None)
+
     # -- feed updates ----------------------------------------------------
 
     def append_events(self, events: List[Event]) -> None:
