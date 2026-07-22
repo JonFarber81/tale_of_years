@@ -75,6 +75,22 @@ everything in it is a page.**
 | #24 | Enriched **host page** (mustered vs current, coalition, supply, ETA); march-path map overlay |
 | #25 | **Region dossier page** + a Regions tab on the faction page; region-tint map overlay |
 
+### How a dossier's internal tabs are realized
+
+The "internal tabs" above (faction's Overview / Diplomacy / Dynasty / Regions,
+etc.) are **not** a `QTabWidget` bolted onto the pane — they are ordinary
+`codex://` pages, consistent with "everything is a page". A dossier renders a
+small HTML tab strip whose entries are `codex://` links; activating one is a
+normal navigation, so the history stack, back/forward, and omnibox reach every
+tab and each tab is deep-linkable. Adding a tab is registering a renderer, never
+adding chrome — the same reason B beat A.
+
+A tab shared by more than one host kind gets **one** kind with a **typed
+ident**, not a kind per host. The first instance is the **Dynasty tab** (#21):
+`codex://dynasty/faction:<id>` and (with #18) `codex://dynasty/character:<id>`
+resolve through a single `dynasty` renderer that picks the tree's root from the
+ident's type prefix. #20's Diplomacy and #25's Regions tabs follow this shape.
+
 ## Consequences
 
 - #36 blocks all of #17–#25 (native GitHub dependencies). Every view issue is

@@ -81,6 +81,13 @@ fertility consequences). The junior partner weds *into* the senior house: the
 lower-standing spouse adopts the other's faction, so the couple's children belong
 unambiguously to the senior realm.
 
+**Presumptive heir** — the kin who *would* inherit a seat as the record stands,
+a pure rng-free query for kin-succession realms (the senior living descendant,
+else collateral). Distinct from the succession phase's actual resolution, which
+for an **elective** seat draws the RNG to elect and so has no fixed heir to
+preview — an elective seat's presumptive heir is `None`. The viewer reads this
+to badge an heir in the Dynasty view; the phase enacts the real handover.
+
 **Border friction** — the slow souring of disposition between two factions whose
 territory touches and who are not bound by treaty/vassalage; the standing
 downward pressure that rubbing borders exert.
