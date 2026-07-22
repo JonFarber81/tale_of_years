@@ -30,7 +30,10 @@ sim core never does, so core and its tests stay Qt-free.
 6. **`sauron.py`** — `nazgul_hunt`: the Nine ride (after armies march).
 6½. **`journeys.py`** — `character_journeys`: named travellers advance tile→tile on
    their own journeys (ADR-0015 mover), before the Ring phase so an arrival is on
-   the tile when it looks. Isolated per-tick RNG; inert until motives are wired.
+   the tile when it looks. Isolated per-tick RNG. First motive wired: **ring-seeking**
+   (`_seek_the_ring`) — a Ring left unborne draws a generated seeker from the nearest
+   free realm who journeys to its tile, takes it up (`found`), and carries it home
+   (the tracer that flips the harness off `lying_lost`, issue #54).
 7. **`war.py`** — resolves field battles, sieges, conquest, razing at current positions.
 8. **`economy.py`** — `construction_economy`: yearly treasury income, settlement building (peacetime foil to war).
 9. **`ring.py`** — the One Ring; runs after war so it can read the field. XOR invariant: exactly one of `bearer_id` / `location_id` set.
