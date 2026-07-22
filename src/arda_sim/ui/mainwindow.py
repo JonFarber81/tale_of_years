@@ -61,6 +61,7 @@ from .dossier_html import (
     banner,
     dim_para,
     esc,
+    index_table,
     para,
     pre_block,
     section,
@@ -237,6 +238,9 @@ class MainWindow(QMainWindow):
         # dossier and index is a page. The pane owns navigation (history,
         # omnibox, links); this window owns what pages say (_render_page).
         self._codex = CodexPane(self._render_page, self)
+        # Activating a page can move the map (ADR-0014's two-way link): opening a
+        # host page centres its marker — the armies-index row jump of #17.
+        self._codex.navigated.connect(self._on_codex_navigated)
         codex_dock = QDockWidget("Codex", self)
         codex_dock.setWidget(self._codex)
         self.addDockWidget(Qt.RightDockWidgetArea, codex_dock)
@@ -389,6 +393,21 @@ class MainWindow(QMainWindow):
     def _on_tile_clicked(self, col: int, row: int) -> None:
         self._codex.navigate(CodexAddress("tile", f"{col},{row}"))
 
+    def _on_codex_navigated(self, address: CodexAddress) -> None:
+        """Codex → map: opening a host page centres/highlights its marker.
+
+        The Codex↔map link runs both ways (ADR-0014); this direction is what
+        makes an armies-index row *click and centre the map on that host* (#17).
+        Only host pages jump the map — a host is the one page kind bound to a
+        single live tile — and only when the host is present and afield.
+        """
+        if address.kind != "host" or self._latest_snapshot is None:
+            return
+        army_id = self._int_ident(address.ident)
+        army = self._latest_snapshot.entity(army_id) if army_id is not None else None
+        if isinstance(army, Army) and army.alive:
+            self._map.focus_tile(army.col, army.row)
+
     def _render_page(self, address: CodexAddress) -> Optional[str]:
         """The Codex's registry: resolve an address to page HTML.
 
@@ -459,18 +478,139 @@ class MainWindow(QMainWindow):
         ring = self._ring_in(self._latest_snapshot)
         return self.describe_ring(ring) if ring is not None else None
 
-    # What each index will hold; the tables land with their own issues.
+    # The still-stubbed indexes; each table lands with its own issue. Armies
+    # (#17) is live below, so it is no longer a blurb.
     _INDEX_BLURBS = {
-        "armies": "The muster-roll of every host afield. Its table arrives with #17.",
         "factions": "The powers of the age, compared. Its table arrives with #19.",
         "wars": "The wars and bonds between realms. Its table arrives with #20.",
     }
 
     def _index_page(self, ident: str) -> Optional[str]:
-        blurb = self._INDEX_BLURBS.get(ident)
+        """An index page. The ident is the index name, optionally followed by a
+        ``/<sort>`` — so ``armies`` and ``armies/faction`` are the same page
+        under different sort orders (each an ordinary history entry)."""
+        name, _, sort = ident.partition("/")
+        if name == "armies":
+            return self._armies_index(sort or None)
+        blurb = self._INDEX_BLURBS.get(name)
         if blurb is None:
             return None
-        return banner("Index", ident.title()) + dim_para(blurb)
+        return banner("Index", name.title()) + dim_para(blurb)
+
+    # The armies-index columns, in display order: (header label, sort key,
+    # descending?). A host's own name column carries the row's link to its
+    # host page; the roll opens greatest-host-first, so strength is the default.
+    _ARMY_COLUMNS = (
+        ("Host", "host", False),
+        ("Faction", "faction", False),
+        ("Leader", "leader", False),
+        ("Strength", "strength", True),
+        ("Destination", "destination", False),
+        ("Target", "target", False),
+        ("Siege", "siege", True),
+    )
+    _DEFAULT_ARMY_SORT = "strength"
+
+    def _armies_index(self, sort: Optional[str]) -> str:
+        """The Armies index (#17): every host afield as a sortable table.
+
+        Each row names a host (linking to its host page, whose activation
+        centres the map on the marker — the ticket's click-to-centre), with its
+        faction, leader, strength, destination, target realm, and siege. Column
+        headers are sort links; the roll defaults to strength, greatest first.
+        Reads only the displayed snapshot, like the rest of the Codex.
+        """
+        columns = {key: desc for _label, key, desc in self._ARMY_COLUMNS}
+        if sort not in columns:
+            sort = self._DEFAULT_ARMY_SORT
+        armies = (
+            self._armies_in(self._latest_snapshot)
+            if self._latest_snapshot is not None
+            else []
+        )
+        head = banner("Index", "Armies")
+        if not armies:
+            return head + dim_para("No hosts are afield in the displayed year.")
+        rows = [self._army_index_row(army) for army in armies]
+        rows.sort(key=lambda row: row["sort"][sort], reverse=columns[sort])
+        headers = [
+            self._army_index_header(label, key, sort)
+            for label, key, _desc in self._ARMY_COLUMNS
+        ]
+        return head + index_table(headers, (row["cells"] for row in rows))
+
+    def _army_index_header(self, label: str, key: str, active: str) -> str:
+        """A column header: a sort link, or bold plain text for the live sort."""
+        if key == active:
+            return f"<b>{esc(label)}</b>"
+        return f'<a href="codex://index/armies/{key}">{esc(label)}</a>'
+
+    def _army_index_row(self, army: Army) -> dict:
+        """One host's index row: its sort values (per column key) and the
+        pre-composed HTML cells (host/faction/target/destination as links)."""
+        snapshot = self._latest_snapshot
+        faction_name = (
+            self._faction_names.get(army.faction_id)
+            if army.faction_id is not None
+            else None
+        )
+        leader = (
+            snapshot.entity(army.leader_id)
+            if army.leader_id is not None and snapshot is not None
+            else None
+        )
+        leader_name = leader.name if leader is not None else "—"
+        dest_site = (
+            self._grid.site_by_id(army.dest_site_id)
+            if army.dest_site_id is not None
+            else None
+        )
+        if dest_site is not None:
+            destination = dest_site.name
+        elif army.dest_site_id is not None:
+            destination = "the field"
+        else:
+            destination = "—"  # holding in garrison
+        target_name = (
+            self._faction_names.get(army.target_faction_id)
+            if army.target_faction_id is not None
+            else None
+        )
+        siege = self._siege_line(army, self._host_seat(army)) or "—"
+        cells = [
+            self._codex_link("host", army.id, army.name),
+            self._faction_cell(army.faction_id, faction_name),
+            esc(leader_name),
+            esc(army.size),
+            self._codex_link("site", dest_site.id, dest_site.name)
+            if dest_site is not None
+            else esc(destination),
+            self._faction_cell(army.target_faction_id, target_name),
+            esc(siege),
+        ]
+        return {
+            "cells": cells,
+            "sort": {
+                "host": army.name.lower(),
+                "faction": (faction_name or "").lower(),
+                "leader": leader_name.lower(),
+                "strength": army.size,
+                "destination": destination.lower(),
+                "target": (target_name or "").lower(),
+                "siege": army.siege_progress,
+            },
+        }
+
+    def _faction_cell(self, faction_id: Optional[int], name: Optional[str]) -> str:
+        """A faction table cell: a link to its page, or a dash when there is none."""
+        if faction_id is None or name is None:
+            return "—"
+        return self._codex_link("faction", faction_id, name)
+
+    @staticmethod
+    def _codex_link(kind: str, ident: object, label: object) -> str:
+        """An in-Codex ``codex://`` anchor (ident/label escaped)."""
+        return f'<a href="codex://{kind}/{esc(ident)}">{esc(label)}</a>'
 
     def _search_page(self, query: str) -> str:
         return render_search_page(
@@ -677,17 +817,31 @@ class MainWindow(QMainWindow):
         ]
         # A host investing a seat shows the drama the map can't: how far the
         # walls have been worn down (Army.siege_progress was invisible before).
-        seat = next(
-            (s for s in self._grid.sites if s.col == army.col and s.row == army.row),
-            None,
-        )
-        if army.siege_progress > 0 and seat is not None:
-            stats.insert(1, ("Siege", f"{army.siege_progress} / {fortification(seat)}"))
+        seat = self._host_seat(army)
+        siege = self._siege_line(army, seat)
+        if siege is not None:
+            stats.insert(1, ("Siege", siege))
         parts = [banner("Host", army.name, accent), stat_grid(stats)]
         parts.append(self._host_locator(army, seat))
         if faction is not None:
             parts.append(self._faction_context(faction))
         return "".join(parts)
+
+    def _host_seat(self, army: Army):
+        """The settlement on the host's tile, if any — the seat it may besiege.
+
+        Shared by the host dossier and the armies index so the two never price a
+        host's siege differently."""
+        return next(
+            (s for s in self._grid.sites if s.col == army.col and s.row == army.row),
+            None,
+        )
+
+    def _siege_line(self, army: Army, seat) -> Optional[str]:
+        """``progress / walls`` while a host invests ``seat``, else ``None``."""
+        if army.siege_progress > 0 and seat is not None:
+            return f"{army.siege_progress} / {fortification(seat)}"
+        return None
 
     def _host_locator(self, army: Army, seat) -> str:
         """One dim line placing the host: seat, region, and whose land it is."""

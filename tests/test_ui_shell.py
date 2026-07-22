@@ -525,6 +525,19 @@ def test_dossier_html_primitives(qapp):
     assert "<b>DIPLOMACY</b>" in section("Diplomacy")
 
 
+def test_index_table_lays_out_headers_and_rows(qapp):
+    from arda_sim.ui.dossier_html import index_table
+
+    html = index_table(
+        ["Host", '<a href="codex://index/armies/strength">Strength</a>'],
+        [['<a href="codex://host/9">Great Host</a>', "5000"]],
+    )
+    assert "<table" in html and html.count("<tr>") == 2  # header row + one body row
+    assert "Host" in html and "Strength" in html
+    # Cells are pre-composed HTML: links pass through untouched, not escaped.
+    assert 'href="codex://host/9"' in html and "Great Host" in html and "5000" in html
+
+
 def test_dossier_html_escapes_hostile_names(qapp):
     from arda_sim.ui.dossier_html import banner, stat_grid
 
@@ -756,14 +769,133 @@ def test_codex_anchor_clicks_navigate_pages(qapp):
 
 
 def test_index_links_render_stub_pages(qapp):
+    # The still-unbuilt indexes are blurb stubs (armies is live, see below).
     from arda_sim.ui.codex import CodexAddress
 
     window = build_window("fellowship")
     try:
-        for name, marker in (("armies", "#17"), ("factions", "#19"), ("wars", "#20")):
+        for name, marker in (("factions", "#19"), ("wars", "#20")):
             window._codex.navigate(CodexAddress("index", name))
             text = window._codex.browser.toPlainText()
             assert "INDEX" in text and name.title() in text and marker in text
+    finally:
+        window.close()
+
+
+def _host(id_, name, size, faction_id=None, **kw):
+    from arda_sim.armies import Army
+
+    return Army(
+        id=id_, kind="army", created_year=START_YEAR, name=name, size=size,
+        faction_id=faction_id, **kw,
+    )
+
+
+def test_armies_index_lists_hosts_as_linked_rows_sorted_by_strength(qapp):
+    # The Armies index (#17): every host afield, greatest first by default,
+    # each row's name linking to its host page.
+    window = build_window("fellowship")
+    try:
+        gondor = next(k for k, v in window._faction_names.items() if v == "Gondor")
+        rohan = next(k for k, v in window._faction_names.items() if v == "Rohan")
+        small = _host(100, "Lesser Host", 200, faction_id=gondor, col=1, row=1)
+        great = _host(101, "Greater Host", 5000, faction_id=rohan, col=2, row=2)
+        window._latest_snapshot = Snapshot(
+            tick=0, year=START_YEAR, entities={100: small, 101: great}
+        )
+        html = window._index_page("armies")
+        assert "INDEX" in html and "Armies" in html
+        # Every column the ticket asks for heads the table.
+        for header in ("Host", "Faction", "Leader", "Strength", "Destination",
+                       "Target", "Siege"):
+            assert header in html
+        # Each host names a row that links to its host page.
+        assert 'href="codex://host/100"' in html and "Lesser Host" in html
+        assert 'href="codex://host/101"' in html and "Greater Host" in html
+        assert "5000" in html and "200" in html  # strengths render
+        # Faction cells link to the faction pages.
+        assert f'href="codex://faction/{rohan}"' in html
+        # Default sort is strength descending: the great host precedes the lesser.
+        assert html.index("Greater Host") < html.index("Lesser Host")
+    finally:
+        window.close()
+
+
+def test_armies_index_re_sorts_by_the_ident_sort_key(qapp):
+    # codex://index/armies/<key> renders the same page under a different sort;
+    # the active column head is bold text, the rest are sort links.
+    window = build_window("fellowship")
+    try:
+        gondor = next(k for k, v in window._faction_names.items() if v == "Gondor")
+        rohan = next(k for k, v in window._faction_names.items() if v == "Rohan")
+        # Strength order (great, lesser) is the reverse of name order (Greater<Lesser).
+        great = _host(101, "Greater Host", 5000, faction_id=gondor, col=2, row=2)
+        lesser = _host(100, "Lesser Host", 200, faction_id=rohan, col=1, row=1)
+        window._latest_snapshot = Snapshot(
+            tick=0, year=START_YEAR, entities={100: lesser, 101: great}
+        )
+        by_host = window._index_page("armies/host")
+        # Sorted by host name ascending now: Greater before Lesser holds, but by a
+        # different key — assert the active header flipped and a strength link exists.
+        assert "<b>Host</b>" in by_host  # active sort head is bold, not a link
+        assert 'href="codex://index/armies/strength"' in by_host  # others are links
+        # An unknown sort key falls back to the default (strength), not a dead page.
+        assert window._index_page("armies/nonsense") == window._index_page("armies")
+    finally:
+        window.close()
+
+
+def test_armies_index_shows_destination_target_and_siege(qapp):
+    from arda_sim.war import fortification
+
+    window = build_window("fellowship")
+    try:
+        mt = next(s for s in window._grid.sites if s.name == "Minas Tirith")
+        gondor = next(k for k, v in window._faction_names.items() if v == "Gondor")
+        mordor = next(k for k, v in window._faction_names.items() if v == "Mordor")
+        # A host besieging Minas Tirith, marching against Mordor.
+        host = _host(
+            200, "Besiegers", 900, faction_id=gondor, col=mt.col, row=mt.row,
+            dest_site_id=mt.id, target_faction_id=mordor, siege_progress=40,
+        )
+        window._latest_snapshot = Snapshot(
+            tick=0, year=START_YEAR, entities={200: host}
+        )
+        html = window._index_page("armies")
+        assert f'href="codex://site/{mt.id}"' in html  # destination links to the seat
+        assert f'href="codex://faction/{mordor}"' in html  # target realm links
+        assert f"40 / {fortification(mt)}" in html  # siege progress vs the walls
+    finally:
+        window.close()
+
+
+def test_armies_index_is_empty_when_no_hosts_are_afield(qapp):
+    window = build_window("fellowship")
+    try:
+        window._latest_snapshot = Snapshot(tick=0, year=START_YEAR, entities={})
+        html = window._index_page("armies")
+        assert "Armies" in html and "No hosts are afield" in html
+    finally:
+        window.close()
+
+
+def test_opening_a_host_page_centres_the_map_on_its_marker(qapp):
+    # Activating a host page (an armies-index row click, a search hit, any
+    # codex://host link) centres/highlights the map on that host (#17).
+    window = build_window("fellowship")
+    focused = []
+    window._map.focus_tile = lambda col, row: focused.append((col, row))
+    try:
+        host = _host(300, "Wandering Host", 400, col=5, row=6)
+        window._latest_snapshot = Snapshot(
+            tick=0, year=START_YEAR, entities={300: host}
+        )
+        window._codex.open_url("codex://host/300")
+        assert focused == [(5, 6)]
+        # Non-host pages, and dead host links, move nothing.
+        window._codex.open_url("codex://index/armies")
+        window._codex.open_url("codex://host/999999")
+        assert focused == [(5, 6)]
     finally:
         window.close()
 

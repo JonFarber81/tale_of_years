@@ -67,6 +67,33 @@ def stat_grid(pairs: Iterable[Tuple[str, object]]) -> str:
     )
 
 
+def index_table(headers: Iterable[str], rows: Iterable[Iterable[str]]) -> str:
+    """A multi-column index table for the Codex's index pages (#17/#19/#20).
+
+    Header cells and body cells are **pre-composed HTML** — the caller escapes
+    any text and builds the links (a sort link on a header, an entity link in a
+    cell), exactly as :func:`para` expects of its body. Headers wear the dimmed
+    small label style; body cells the ordinary weight.
+    """
+    head = "".join(
+        '<td style="color: %s; font-size: small; text-align: left; '
+        'padding: 2px 14px 4px 0">%s</td>' % (DIM, cell)
+        for cell in headers
+    )
+    body = "".join(
+        "<tr>"
+        + "".join(
+            '<td style="padding: 2px 14px 2px 0">%s</td>' % cell for cell in row
+        )
+        + "</tr>"
+        for row in rows
+    )
+    return (
+        '<table cellspacing="0" cellpadding="0" style="margin-top: 8px">'
+        f"<tr>{head}</tr>{body}</table>"
+    )
+
+
 def section(title: str) -> str:
     """A small-caps dimmed section header with breathing room above."""
     return (

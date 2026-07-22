@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from html import escape
 from typing import Callable, Iterable, List, Optional, Tuple, Union
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -166,6 +166,11 @@ class CodexPane(QWidget):
     #: The index pages in header order — stub renderers until #17/#19/#20.
     INDEXES = ("armies", "factions", "wars")
 
+    #: Emitted on a *fresh* navigation (a click/omnibox visit, not a
+    #: back/forward walk) with the :class:`CodexAddress` reached, so the window
+    #: can link the map to the page — e.g. centre it on a host (ADR-0014, #17).
+    navigated = Signal(object)
+
     def __init__(
         self,
         render: Callable[[CodexAddress], Optional[str]],
@@ -231,9 +236,15 @@ class CodexPane(QWidget):
     # -- navigation ------------------------------------------------------
 
     def navigate(self, address: CodexAddress) -> None:
-        """Go to a page: render it, enter it into history."""
+        """Go to a page: render it, enter it into history, announce the visit.
+
+        The ``navigated`` signal fires only here (not on back/forward), so
+        map-side effects follow a fresh activation and a history walk stays a
+        quiet re-render.
+        """
         self.history.visit(address)
         self._show(address)
+        self.navigated.emit(address)
 
     def open_url(self, url: Union[str, QUrl]) -> None:
         """Navigate to a ``codex://`` url (string or QUrl); ignore others."""
