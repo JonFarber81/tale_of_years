@@ -16,6 +16,7 @@ dev = ["pytest>=7", "pytest-xdist>=3", "PySide6>=6.5"]
 [project.scripts]
 arda-sim = "arda_sim.driver:main"
 arda-sim-ui = "arda_sim.ui.app:main"
+arda-playtest = "arda_sim.playtest:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

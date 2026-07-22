@@ -247,6 +247,65 @@ carries its rebuilt towns and roads forward (see ADR-0007).
 **restoration** (founding/rebuilding over mere growth), never the fixed integer
 **price** of a work; the dice-free counterpart to the phase-2 intent lean.
 
+## Characters & journeys
+
+**Notable** — a named, *non-dynastic* character outside the ruling seat and the
+succession line: retinue kin, wardens, envoys, seekers. The freely-mobile class of
+the world and the civilian counterpart to the **generated captain** — where a
+captain is synthesised to lead a host, a notable is synthesised to *live* in the
+world. A ruler is not a notable (it stays at its seat); a notable may still be
+raised to general off the leader ladder like anyone else.
+
+**Retinue** — the small cohort of notables seeded into every realm at start (the
+ruler-less seats included), so each seat is inhabited from the first tick and the
+world opens populated rather than as a map of lone rulers.
+
+**Notable generation** — synthesising fresh notables over the run to sustain the
+population as figures die and to supply the seekers and wardens the world calls
+for. The civilian analog of captain-generation; throttled toward a population
+band, never unbounded.
+
+**Journey** — a character's purposeful travel from where it stands to a
+destination site, advancing tile→tile along the least-cost path on the character's
+own pace — the character-layer counterpart to a host's **march** and the Ring's
+**errand**. A character on a journey is *abroad* (unavailable to be seated as a
+general) until it arrives.
+
+**Motive** — the closed set of reasons a character undertakes a **journey**:
+**ring-seeking**, **kin-&-court** (visiting kin, attending a court, enacting a
+marriage or fostering), **homecoming** (drifting back to one's seat when
+motiveless, so the map does not slowly smear), and **ranging**. Like the Ring's
+**transfer modes**, a fixed vocabulary — the map of why anyone is on the road.
+
+**Eligibility** — who may journey: rulers stay at their seat; **heirs** and
+dynastic kin travel readily (for kin-&-court and ranging, accepting some
+succession churn); **notables** travel freely; a character **leading a host** is
+locked to it until the host disbands. The war and succession machinery keep their
+people; the visible movement is carried by the mobile classes.
+
+**Ranging** — a **warden**'s perpetual home-range patrol: a **journey** whose goal
+is re-drawn within (or bordering) the warden's own realm on each arrival, so the
+character circulates its march rather than settling. Wardens are seeded into the
+wilds-warding realms (the Dúnedain of the North foremost, the Elf-realms'
+march-wardens after) and, roaming the wild, are the likeliest to chance on a Ring
+that lies lost.
+
+**Seeker** — a character, often freshly **generated**, drawn to **journey** toward
+a stirring or long-lost Ring to take it up — the free-peoples counterpart to the
+Nazgûl **hunt**. A bounded few may be on the road toward the same Ring at once (a
+**race for the Ring**), their senders chosen by nearness, temper, and canon lean;
+first to reach the Ring's tile takes it. On taking it a seeker carries the Ring to
+its own realm's seat and is thereafter an ordinary **bearer** — the existing
+corruption / errand / quest / thrall rolls decide the ending.
+
+**Physical acquisition (finding)** — the Ring re-enters play only through a
+character *standing on its tile*: a resident **finder**, an arriving **seeker**, or
+a ranging **warden** — never an abstract take-up at a distance. The one exception
+is an eligible **heir already present** when a bearer dies, who takes it up on the
+spot. This is what makes **lying lost** the *reversible* holding pattern it is
+meant to be: a Ring left in an empty place *draws* someone rather than sitting
+untouched forever.
+
 ## The One Ring
 
 **The One Ring** — the single bespoke artifact at the world's centre. There is
@@ -292,7 +351,8 @@ betrayed away — the danger it invites — never any power to move on its own.
 canonicity-weighted chance fired by the phase that owns it:
 **inheritance** (a dead bearer's kin take it up, kinship-biased), **gift**,
 **theft**, **loss** (it slips and lies where it fell), **found** (picked up from
-where it lay), **war-capture** (seized by a host holding that ground), and
+where it lay — see *physical acquisition*), **war-capture** (seized by a host
+holding that ground), and
 **errand** (sent deliberately toward a goal — movement, not a handover).
 
 **Errand** — the Ring travelling with its bearer toward a goal, advancing tile by
@@ -323,9 +383,12 @@ Khamûl at Dol Guldur). Elite generals of the dark realm between hunts; **unmade
 (status `destroyed`) with the Ring's destruction.
 
 **Hunt** — the Nine on the road after the Ring: a transient tile-moving record
-spawned by the dark realm's phase-2 `hunt_ring` intent (fired only on high
-strength + high pull), riding on a search budget toward the Ring's tile. The hunt
-only *moves* — the capture attempt is the Ring phase's own roll.
+spawned by the dark realm's phase-2 `hunt_ring` intent, **unlocked by the Shadow's
+strength**; the Ring's **pull** now lends only *urgency*, no longer a gate, so the
+Nine ride even to a Ring gone quiet, and a strength-driven hunt is bounded by its
+**search budget** rather than aborting the moment the scent fades. The hunt only
+*moves* — the capture attempt is the Ring phase's own roll. The free-peoples
+**seeker** is its light-side counterpart in the **race for the Ring**.
 
 **Terminal outcome** — one of the Ring's three endings, each raising a world
 flag: **destroyed** (an errand reaching active Orodruin — Ring tombstoned, the
