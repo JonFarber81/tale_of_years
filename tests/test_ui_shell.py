@@ -871,21 +871,6 @@ def test_codex_anchor_clicks_navigate_pages(qapp):
         window.close()
 
 
-def test_index_links_render_stub_pages(qapp):
-    # The still-unbuilt indexes are blurb stubs (armies #17 and factions #19
-    # are live, see below); only wars #20 remains a blurb.
-    from arda_sim.ui.codex import CodexAddress
-
-    window = build_window("fellowship")
-    try:
-        for name, marker in (("wars", "#20"),):
-            window._codex.navigate(CodexAddress("index", name))
-            text = window._codex.browser.toPlainText()
-            assert "INDEX" in text and name.title() in text and marker in text
-    finally:
-        window.close()
-
-
 def _host(id_, name, size, faction_id=None, **kw):
     from arda_sim.armies import Army
 
@@ -1066,6 +1051,182 @@ def test_factions_index_is_empty_when_no_factions_stand(qapp):
         window._latest_snapshot = Snapshot(tick=0, year=START_YEAR, entities={})
         html = window._index_page("factions")
         assert "Factions" in html and "No factions stand" in html
+    finally:
+        window.close()
+
+
+def test_wars_index_lists_wars_and_treaties_as_deduped_linked_pairs(qapp):
+    # The Wars index (#20): every war and treaty a single row, both sides
+    # linking to their dossiers — a symmetric bond appears once, not per side.
+    window = build_window("fellowship")
+    try:
+        a = _faction_entity(9001, "Arnor", at_war_with=[9002], treaties=[9003])
+        b = _faction_entity(9002, "Barad", at_war_with=[9001])  # war reciprocated
+        c = _faction_entity(9003, "Cardolan", treaties=[9001])  # treaty reciprocated
+        window._faction_names.update({9001: "Arnor", 9002: "Barad", 9003: "Cardolan"})
+        window._latest_snapshot = Snapshot(
+            tick=0, year=START_YEAR, entities={9001: a, 9002: b, 9003: c}
+        )
+        html = window._index_page("wars")
+        assert "INDEX" in html and "Wars" in html
+        for header in ("Relation", "Between", "And"):
+            assert header in html
+        assert "War" in html and "Treaty" in html
+        # Both sides of each pair link to their dossier.
+        for fid in (9001, 9002, 9003):
+            assert f'href="codex://faction/{fid}"' in html
+        # The war is deduped to one row: Arnor's name shows up exactly across
+        # its two rows (war with Barad, treaty with Cardolan), never doubled.
+        assert html.count("codex://faction/9002") == 1  # Barad, war, once
+        assert html.count("codex://faction/9003") == 1  # Cardolan, treaty, once
+    finally:
+        window.close()
+
+
+def test_wars_index_re_sorts_by_the_ident_sort_key(qapp):
+    # codex://index/wars/<key> renders the same page under a different sort;
+    # the active head is bold, the rest link. An unknown key falls back.
+    window = build_window("fellowship")
+    try:
+        a = _faction_entity(9001, "Zeal", at_war_with=[9002])
+        b = _faction_entity(9002, "Anga", at_war_with=[9001])
+        window._faction_names.update({9001: "Zeal", 9002: "Anga"})
+        window._latest_snapshot = Snapshot(
+            tick=0, year=START_YEAR, entities={9001: a, 9002: b}
+        )
+        by_between = window._index_page("wars/between")
+        assert "<b>Between</b>" in by_between  # active sort head is bold
+        assert 'href="codex://index/wars/relation"' in by_between  # others link
+        # Ordered within the pair by name: Anga precedes Zeal.
+        assert by_between.index("Anga") < by_between.index("Zeal")
+        # An unknown sort key falls back to the default, not a dead page.
+        assert window._index_page("wars/nonsense") == window._index_page("wars")
+    finally:
+        window.close()
+
+
+def test_wars_index_is_empty_when_no_bonds_stand(qapp):
+    window = build_window("fellowship")
+    try:
+        lone = _faction_entity(9001, "Hermit")
+        window._faction_names.update({9001: "Hermit"})
+        window._latest_snapshot = Snapshot(
+            tick=0, year=START_YEAR, entities={9001: lone}
+        )
+        html = window._index_page("wars")
+        assert "Wars" in html and "No wars or treaties" in html
+    finally:
+        window.close()
+
+
+def test_wars_index_drops_bonds_to_absent_factions(qapp):
+    # A war/treaty against a faction not in the displayed year has nothing to
+    # link to, so it is dropped rather than rendering a bare id.
+    window = build_window("fellowship")
+    try:
+        a = _faction_entity(9001, "Arnor", at_war_with=[7777])  # 7777 absent
+        window._faction_names.update({9001: "Arnor"})
+        window._latest_snapshot = Snapshot(
+            tick=0, year=START_YEAR, entities={9001: a}
+        )
+        html = window._index_page("wars")
+        assert "No wars or treaties" in html
+        assert "7777" not in html
+    finally:
+        window.close()
+
+
+def test_faction_dossier_shows_a_diplomacy_tab(qapp):
+    # The faction page's tab strip carries a Diplomacy entry (a codex:// link)
+    # alongside Overview and Dynasty (#20).
+    window = build_window("fellowship")
+    try:
+        gondor = _seeded_faction(window, "Gondor")
+        html = window.describe_faction(gondor)
+        assert "Overview" in html and "Diplomacy" in html and "Dynasty" in html
+        assert f"codex://diplomacy/faction:{gondor.id}" in html
+    finally:
+        window.close()
+
+
+def test_diplomacy_page_shows_wars_treaties_drift_and_intent(qapp):
+    # codex://diplomacy/faction:<id> resolves through the diplomacy renderer and
+    # shows active wars, treaties, disposition drift from baseline, and intent.
+    from arda_sim.ui.codex import CodexAddress
+
+    window = build_window("fellowship")
+    try:
+        foe = _faction_entity(9002, "Mordor-ish")
+        ally = _faction_entity(9003, "Rohan-ish")
+        realm = _faction_entity(
+            9001,
+            "Gondor-ish",
+            at_war_with=[9002],
+            treaties=[9003],
+            disposition={"9002": -80, "9003": 55},
+            baseline_disposition={"9002": -60, "9003": 55},
+        )
+        window._faction_names.update(
+            {9001: "Gondor-ish", 9002: "Mordor-ish", 9003: "Rohan-ish"}
+        )
+        window._latest_snapshot = Snapshot(
+            tick=0,
+            year=START_YEAR,
+            entities={9001: realm, 9002: foe, 9003: ally},
+        )
+        window._events.append(
+            _event(
+                START_YEAR,
+                type_="faction_intent",
+                subject_ids=[9001],
+                text="Gondor-ish made ready for war against Mordor-ish.",
+            )
+        )
+        window._display_year = START_YEAR
+        html = window._render_page(CodexAddress("diplomacy", "faction:9001"))
+        text_marks = ("DIPLOMACY", "ACTIVE WARS", "TREATIES", "DRIFT", "STANDING INTENT")
+        for mark in text_marks:
+            assert mark in html.upper()
+        # Wars and treaties link both parties' dossiers.
+        assert f'href="codex://faction/9002"' in html
+        assert f'href="codex://faction/9003"' in html
+        # Drift shows current vs. baseline and the signed delta (−80 vs −60).
+        assert "-80" in html and "-60" in html and "drifted -20" in html
+        assert "at baseline" in html  # the ally hasn't moved (55 == 55)
+        # Intent reads from the latest faction_intent event's prose.
+        assert "made ready for war" in html
+        # The active tab is Diplomacy.
+        assert "codex://faction/9001" in html  # Overview tab links back
+    finally:
+        window.close()
+
+
+def test_diplomacy_page_is_quiet_for_an_isolated_realm(qapp):
+    window = build_window("fellowship")
+    try:
+        lone = _faction_entity(9001, "Hermit")
+        window._faction_names.update({9001: "Hermit"})
+        window._latest_snapshot = Snapshot(
+            tick=0, year=START_YEAR, entities={9001: lone}
+        )
+        window._display_year = START_YEAR
+        html = window.describe_diplomacy_page(lone)
+        assert "At peace with all" in html
+        assert "No standing pacts" in html
+        assert "taken no counsel" in html  # no intent event yet
+    finally:
+        window.close()
+
+
+def test_malformed_diplomacy_ident_is_a_dead_link(qapp):
+    from arda_sim.ui.codex import CodexAddress
+
+    window = build_window("fellowship")
+    try:
+        _seeded_faction(window, "Gondor")  # a snapshot exists
+        for ident in ("faction:banana", "character:1", "999999", "faction:999999"):
+            window._codex.navigate(CodexAddress("diplomacy", ident))
+            assert "No such page" in window._codex.browser.toPlainText()
     finally:
         window.close()
 

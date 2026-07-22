@@ -10,7 +10,7 @@ from snapshots — never the live world.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from PySide6.QtCore import QMetaObject, Qt, QThread, Signal
 from PySide6.QtGui import QFontMetrics
@@ -36,7 +36,7 @@ from ..economy import faction_population
 from ..war import BATTLE_EVENT, SIEGE_EVENT, fortification
 from ..chronicle import AnnalsFilter, pulse_events, show_all_filter
 from ..entities import Event
-from ..factions import Faction, SuccessionRule
+from ..factions import FACTION_INTENT_EVENT, Faction, SuccessionRule
 from ..playback import Playback
 from ..ring import Ring, the_ring
 from ..snapshot import Snapshot
@@ -426,6 +426,7 @@ class MainWindow(QMainWindow):
             "tile": self._tile_page,
             "site": self._site_page,
             "faction": self._faction_page,
+            "diplomacy": self._diplomacy_page,
             "dynasty": self._dynasty_page,
             "host": self._host_page,
             "event": self._event_page,
@@ -462,6 +463,22 @@ class MainWindow(QMainWindow):
         faction_id = self._int_ident(ident)
         faction = self._faction(faction_id) if faction_id is not None else None
         return self.describe_faction(faction) if faction is not None else None
+
+    def _diplomacy_page(self, ident: str) -> Optional[str]:
+        """A Diplomacy tab (ADR-0014, #20): ``codex://diplomacy/faction:<id>``.
+
+        The ident is **typed** exactly like the Dynasty tab's — a
+        ``faction:<id>`` pair. Only ``faction`` is served; a malformed or
+        unknown-type ident is a dead link (``None``), never a raise.
+        """
+        kind, sep, raw = ident.partition(":")
+        if not sep or kind != "faction":
+            return None
+        faction_id = self._int_ident(raw)
+        faction = self._faction(faction_id) if faction_id is not None else None
+        if faction is None or self._latest_snapshot is None:
+            return None
+        return self.describe_diplomacy_page(faction)
 
     def _dynasty_page(self, ident: str) -> Optional[str]:
         """A Dynasty tab (ADR-0014): ``codex://dynasty/faction:<id>``.
@@ -503,25 +520,19 @@ class MainWindow(QMainWindow):
         ring = self._ring_in(self._latest_snapshot)
         return self.describe_ring(ring) if ring is not None else None
 
-    # The still-stubbed indexes; each table lands with its own issue. Armies
-    # (#17) and Factions (#19) are live below, so neither is a blurb.
-    _INDEX_BLURBS = {
-        "wars": "The wars and bonds between realms. Its table arrives with #20.",
-    }
-
     def _index_page(self, ident: str) -> Optional[str]:
         """An index page. The ident is the index name, optionally followed by a
         ``/<sort>`` — so ``armies`` and ``armies/faction`` are the same page
-        under different sort orders (each an ordinary history entry)."""
+        under different sort orders (each an ordinary history entry). Every
+        listed index (#17/#19/#20) is live; an unknown name is a dead link."""
         name, _, sort = ident.partition("/")
         if name == "armies":
             return self._armies_index(sort or None)
         if name == "factions":
             return self._factions_index(sort or None)
-        blurb = self._INDEX_BLURBS.get(name)
-        if blurb is None:
-            return None
-        return banner("Index", name.title()) + dim_para(blurb)
+        if name == "wars":
+            return self._wars_index(sort or None)
+        return None
 
     # The armies-index columns, in display order: (header label, sort key,
     # descending?). A host's own name column carries the row's link to its
@@ -732,6 +743,112 @@ class MainWindow(QMainWindow):
                 "wars": len(faction.at_war_with),
             },
         }
+
+    # The wars-index columns, in display order: (header label, sort key,
+    # descending?). A relation is a symmetric pair, so both cells link to a
+    # faction dossier; the roll opens grouped by relation (wars before treaties).
+    _WARS_COLUMNS = (
+        ("Relation", "relation", False),
+        ("Between", "between", False),
+        ("And", "and", False),
+    )
+    _DEFAULT_WARS_SORT = "relation"
+
+    def _diplomatic_pairs(
+        self, factions: List[Faction]
+    ) -> List[Tuple[str, int, int]]:
+        """The deduped ``(relation, id_a, id_b)`` bonds across the living factions.
+
+        Wars and treaties are *symmetric* (each id sits on both parties' lists),
+        so each unordered pair is emitted once — keyed by ``(relation, lo, hi)``
+        of the two ids. Within a pair the two ids are ordered by faction name, so
+        a row reads and sorts stably. A bond to a faction absent from the
+        displayed year is dropped (nothing to link to)."""
+        names = self._faction_names
+        living = {faction.id for faction in factions}
+        seen: set = set()
+        pairs: List[Tuple[str, int, int]] = []
+        for faction in factions:
+            for relation, others in (
+                ("war", faction.at_war_with),
+                ("treaty", faction.treaties),
+            ):
+                for other_id in others:
+                    if other_id not in living:
+                        continue
+                    key = (relation, *sorted((faction.id, other_id)))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    a, b = sorted(
+                        (faction.id, other_id),
+                        key=lambda fid: names.get(fid, str(fid)).lower(),
+                    )
+                    pairs.append((relation, a, b))
+        return pairs
+
+    def _wars_index(self, sort: Optional[str]) -> str:
+        """The Wars index (#20): every war and treaty as a sortable table.
+
+        Each row is one symmetric relation — a war or a treaty — deduped to a
+        single line, both sides linking to their faction dossiers. Column headers
+        are sort links; the roll defaults to relation (wars before treaties).
+        Reads only the displayed snapshot, like the rest of the Codex.
+        """
+        columns = {key: desc for _label, key, desc in self._WARS_COLUMNS}
+        if sort not in columns:
+            sort = self._DEFAULT_WARS_SORT
+        factions = (
+            self._factions_in(self._latest_snapshot)
+            if self._latest_snapshot is not None
+            else []
+        )
+        head = banner("Index", "Wars")
+        pairs = self._diplomatic_pairs(factions)
+        if not pairs:
+            return head + dim_para(
+                "No wars or treaties bind the realms in the displayed year."
+            )
+        rows = [self._wars_index_row(rel, a, b) for rel, a, b in pairs]
+        rows.sort(key=lambda row: row["sort"][sort], reverse=columns[sort])
+        headers = [
+            self._wars_index_header(label, key, sort)
+            for label, key, _desc in self._WARS_COLUMNS
+        ]
+        return head + index_table(headers, (row["cells"] for row in rows))
+
+    def _wars_index_header(self, label: str, key: str, active: str) -> str:
+        """A column header: a sort link, or bold plain text for the live sort."""
+        if key == active:
+            return f"<b>{esc(label)}</b>"
+        return f'<a href="codex://index/wars/{key}">{esc(label)}</a>'
+
+    def _wars_index_row(self, relation: str, a_id: int, b_id: int) -> dict:
+        """One relation's index row: its sort values and the pre-composed HTML
+        cells (the relation word colored, each side linking to its dossier)."""
+        names = self._faction_names
+        a_name = names.get(a_id, str(a_id))
+        b_name = names.get(b_id, str(b_id))
+        cells = [
+            self._relation_html(relation),
+            self._faction_cell(a_id, a_name),
+            self._faction_cell(b_id, b_name),
+        ]
+        return {
+            "cells": cells,
+            "sort": {
+                "relation": relation,
+                "between": a_name.lower(),
+                "and": b_name.lower(),
+            },
+        }
+
+    @staticmethod
+    def _relation_html(relation: str) -> str:
+        """A relation word in the feed's colors: war reads bold red, treaty green."""
+        if relation == "war":
+            return f'<b style="color: {_WAR_COLOR}">War</b>'
+        return f'<span style="color: {_AMITY_COLOR}">Treaty</span>'
 
     def _search_page(self, query: str) -> str:
         return render_search_page(
@@ -1053,6 +1170,11 @@ class MainWindow(QMainWindow):
             [
                 ("Overview", f"codex://faction/{faction.id}", active == "Overview"),
                 (
+                    "Diplomacy",
+                    f"codex://diplomacy/faction:{faction.id}",
+                    active == "Diplomacy",
+                ),
+                (
                     "Dynasty",
                     f"codex://dynasty/faction:{faction.id}",
                     active == "Dynasty",
@@ -1167,6 +1289,133 @@ class MainWindow(QMainWindow):
             VASSALAGE: _FEALTY_COLOR,
         }.get(label, _WAR_COLOR)
         return f'<span style="color: {color}">{esc(label)}</span>'
+
+    def describe_diplomacy_page(self, faction: Faction) -> str:
+        """The Diplomacy tab (#20): the faction's whole diplomatic picture.
+
+        A ``codex://diplomacy/faction:<id>`` page alongside Overview/Dynasty:
+        its **active wars** and **treaties** as linked faction pairs, a
+        **disposition list showing drift** from the frozen ``baseline_disposition``
+        (so the reader sees how far each relation has moved from its authored
+        attractor), and the faction's **standing intent** — read from the latest
+        ``faction_intent`` event, honouring the intent-via-events decision rather
+        than printing the transient ``current_intent`` scalar. Stances reuse the
+        derived :func:`stance` and the established stance/fealty colors. Reads
+        only the displayed snapshot, so it reflects the scrubbed year.
+        """
+        names = self._faction_names
+        parts = [
+            banner("Diplomacy", faction.name, self._owner_accent(faction.id)),
+            self._faction_tabs(faction, active="Diplomacy"),
+        ]
+
+        wars = [
+            self._faction_cell(fid, names.get(fid, str(fid)))
+            for fid in sorted(
+                faction.at_war_with,
+                key=lambda f: names.get(f, str(f)).lower(),
+            )
+            if self._faction(fid) is not None
+        ]
+        parts.append(section("Active wars"))
+        parts.append(
+            para(
+                '<span style="color: %s">At war with </span>%s'
+                % (DIM, " · ".join(wars))
+            )
+            if wars
+            else dim_para("At peace with all.")
+        )
+
+        treaties = [
+            self._faction_cell(fid, names.get(fid, str(fid)))
+            for fid in sorted(
+                faction.treaties,
+                key=lambda f: names.get(f, str(f)).lower(),
+            )
+            if self._faction(fid) is not None
+        ]
+        parts.append(section("Treaties"))
+        parts.append(
+            para(
+                '<span style="color: %s">Sworn to </span>%s'
+                % (DIM, " · ".join(treaties))
+            )
+            if treaties
+            else dim_para("No standing pacts.")
+        )
+
+        drift = self._disposition_drift(faction)
+        parts.append(section("Disposition (drift from baseline)"))
+        parts.append(
+            para("<br>".join(drift))
+            if drift
+            else dim_para("No feeling stirs toward any other power.")
+        )
+
+        parts.append(section("Standing intent"))
+        intent = self._standing_intent(faction)
+        parts.append(
+            para(esc(intent))
+            if intent
+            else dim_para("This power has taken no counsel yet.")
+        )
+        return "".join(parts)
+
+    def _disposition_drift(self, faction: Faction) -> List[str]:
+        """Each related power's stance and how far its disposition has drifted.
+
+        One line per faction this one has any bond or feeling toward (a war, a
+        treaty, or a live/baseline disposition entry): the stance word colored,
+        then the current scalar against its frozen baseline and the signed drift
+        — so a relation warming toward alliance or souring toward war reads at a
+        glance. Neutral pairs are kept here (unlike the Overview) precisely so
+        their drift shows."""
+        names = self._faction_names
+        related = (
+            set(faction.at_war_with)
+            | set(faction.treaties)
+            | {int(k) for k in faction.disposition}
+            | {int(k) for k in faction.baseline_disposition}
+        )
+        lines: List[str] = []
+        for other_id in sorted(
+            related, key=lambda f: names.get(f, str(f)).lower()
+        ):
+            other = self._faction(other_id)
+            if other is None:
+                continue
+            current = faction.disposition_toward(other_id)
+            baseline = faction.baseline_toward(other_id)
+            delta = current - baseline
+            drift = f"drifted {delta:+d}" if delta else "at baseline"
+            label = stance(faction, other)
+            lines.append(
+                f"{self._faction_cell(other_id, names.get(other_id, str(other_id)))}: "
+                f"{self._stance_html(faction, other_id, label)} "
+                f'<span style="color: {DIM}">'
+                f"(now {current:+d}, baseline {baseline:+d} · {drift})</span>"
+            )
+        return lines
+
+    def _standing_intent(self, faction: Faction) -> Optional[str]:
+        """The faction's standing intent as its latest ``faction_intent`` prose.
+
+        Honours the intent-via-events decision: rather than print the transient
+        ``current_intent`` scalar, it reads the most recent intent event at/under
+        the displayed year and reuses the chronicle sentence already stamped on
+        it — the same words the annals show. ``None`` when none has fired yet."""
+        latest = None
+        for event in self._events:
+            if (
+                event.type == FACTION_INTENT_EVENT
+                and faction.id in event.subject_ids
+                and event.year <= self._display_year
+            ):
+                latest = event
+        if latest is None:
+            return None
+        return latest.text or latest.type
 
     def describe_dynasty(self, faction: Faction) -> str:
         """The Dynasty tab (#21): the ruling bloodline as an indented, linked tree.
