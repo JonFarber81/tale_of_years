@@ -124,6 +124,43 @@ def test_established_couples_produce_births():
     assert len(child.parent_ids) == 2
 
 
+def test_a_generated_child_takes_a_culture_authentic_name(): # issue #34
+    from arda_sim.characters import _bear_child
+    from arda_sim.factions import NamingCulture, add_faction, FactionKind
+    from arda_sim.naming import load_name_pools
+    import random
+
+    w = World.new_run("brood")
+    rohan = add_faction(w, "Rohan", FactionKind.REALM, culture=NamingCulture.ROHIRRIC)
+    mother = add_character(w, "Théodwyn", Race.MAN, 2938, sex="F", faction_id=rohan.id)
+    father = add_character(w, "Éomund", Race.MAN, 2930, sex="M", faction_id=rohan.id)
+    pool = load_name_pools()[NamingCulture.ROHIRRIC.value]["given"]
+    rng = random.Random(1)
+    for _ in range(20):
+        child = _bear_child(w, rng, mother, father)
+        assert not child.name.startswith("Child of")  # the placeholder is retired
+        # a daughter draws a woman's name, a son a man's — pools are gendered
+        canon = pool["female"] if child.sex == "F" else pool["male"]
+        assert child.name.split()[0] in canon  # from Rohan's own gendered register
+
+
+def test_a_child_names_from_the_factioned_parent_when_the_other_is_factionless():
+    from arda_sim.characters import _bear_child
+    from arda_sim.factions import NamingCulture, add_faction, FactionKind
+    from arda_sim.naming import load_name_pools
+    import random
+
+    w = World.new_run("lineage")
+    shire = add_faction(w, "The Shire", FactionKind.CULTURE, culture=NamingCulture.HOBBIT)
+    mother = add_character(w, "Primula", Race.HOBBIT, 2920, sex="F")  # no faction
+    father = add_character(w, "Drogo", Race.HOBBIT, 2908, sex="M", faction_id=shire.id)
+    hobbit = load_name_pools()[NamingCulture.HOBBIT.value]
+    child = _bear_child(w, random.Random(3), mother, father)
+    # Read the register off the father's Shire faction, not the race default.
+    assert child.name.split()[0] in hobbit["given"]["male"] + hobbit["given"]["female"]
+    assert len(child.name.split()) >= 2  # Hobbits carry a surname
+
+
 def test_a_lone_character_never_gives_birth():
     w = World.new_run("solo")
     add_character(w, "Gilraen", Race.MAN, 2907, sex="F")  # no spouse

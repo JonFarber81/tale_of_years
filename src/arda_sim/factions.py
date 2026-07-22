@@ -39,6 +39,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from .characters import Race
 from .characters import characters as _all_characters
 from .entities import Entity, EntityStatus, Event, register_entity_type
 from .scenarios import load_scenario
@@ -113,6 +114,27 @@ _DEFAULT_CULTURE: Dict[str, NamingCulture] = {
 def default_culture_for_people(people: str) -> NamingCulture:
     """The naming register a folk uses when its faction authors no ``culture``."""
     return _DEFAULT_CULTURE.get(people, NamingCulture.MANNISH)
+
+
+# Race is finer than People — the Dúnedain are their own race though ``men`` as a
+# people — so a race carries its own culture default, used to name a generated child
+# when neither parent holds a faction to read a register from (issue #34). Maiar/
+# Wraiths never breed; their entries are only a total-map safeguard.
+_RACE_CULTURE: Dict[str, NamingCulture] = {
+    Race.MAN.value: NamingCulture.MANNISH,
+    Race.DUNEDAIN.value: NamingCulture.DUNEDAIN,
+    Race.HOBBIT.value: NamingCulture.HOBBIT,
+    Race.ORC.value: NamingCulture.ORCISH,
+    Race.DWARF.value: NamingCulture.DWARVISH,
+    Race.ELF.value: NamingCulture.ELVISH,
+    Race.MAIA.value: NamingCulture.ELVISH,
+    Race.WRAITH.value: NamingCulture.MANNISH,
+}
+
+
+def default_culture_for_race(race: str) -> NamingCulture:
+    """The naming register a race defaults to when no faction register is available."""
+    return _RACE_CULTURE.get(race, NamingCulture.MANNISH)
 
 
 class SuccessionRule(str, Enum):

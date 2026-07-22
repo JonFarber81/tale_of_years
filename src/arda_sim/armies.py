@@ -592,7 +592,7 @@ def generate_captain(world: World, lead: Faction) -> Character:
     so a run stays byte-stable. This deliberately grows a new, generated
     sub-population of captains over a long history.
     """
-    from .characters import add_character, characters
+    from .characters import add_character, living_faction_names
     from .naming import choose_sex, generate_name
 
     race = _people_race(lead.people)
@@ -608,7 +608,7 @@ def generate_captain(world: World, lead: Faction) -> Character:
     culture = lead.naming_culture
     name_seed = (mix * 2_246_822_519 + lead.id) & 0xFFFFFFFF
     sex = choose_sex(culture, name_seed)
-    taken = {c.name for c in characters(world, alive_only=True) if c.faction_id == lead.id}
+    taken = living_faction_names(world, lead.id)
     name = generate_name(culture, sex, name_seed, taken)
 
     captain = add_character(

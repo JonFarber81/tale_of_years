@@ -16,9 +16,11 @@ not its army's composition, and independent of `kind` (Isengard in TA 2965 is
 *men*: Saruman's holding, no Uruk-hai yet). Authored at seed on every faction,
 providers included.
 
-**Naming culture** — the register a faction's *generated* characters (captains,
-later children) draw authentic names from (`orcish | dwarvish | elvish | dunedain |
-gondorian | rohirric | hobbit | mannish`). Finer-grained than **People** on
+**Naming culture** — the register a faction's *generated* characters (raised host
+captains and in-sim children) draw authentic names from (`orcish | dwarvish |
+elvish | dunedain | gondorian | rohirric | hobbit | mannish`). A child reads the
+register off whichever parent holds a faction, falling back to its race's default.
+Finer-grained than **People** on
 purpose: Gondor, Rohan and the Dúnedain are all *men* but must name very
 differently. Derived from `people` when unset, and authored explicitly only where
 `people` is too coarse (the distinct Men realms). Name choice is a pure, RNG-free

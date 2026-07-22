@@ -22,7 +22,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from . import START_YEAR, TICKS_PER_YEAR
 from .entities import Entity, EntityStatus, Event, register_entity_type
@@ -400,10 +400,34 @@ def _maybe_birth(
     )
 
 
-# Neutral generated names — real names arrive with the naming system; until then
-# a child is legible as "<race>-child of <mother>" via the parent link.
-def _child_name(mother: Character) -> str:
-    return f"Child of {mother.name}"
+def _child_name(
+    world: World, rng: random.Random, mother: Character, father: Character, sex: str
+) -> str:
+    """A culture-authentic name for a generated child, from its family's faction
+    register (issue #34) — the same selector that names host captains, so children
+    read as authored rather than as "Child of <mother>". Births draw RNG (unlike the
+    RNG-free movement phase), so the pool index is a fresh draw; ``taken``
+    disambiguates against living namesakes in the same faction, as for captains.
+
+    The register is read from whichever parent holds a faction (mother first), so a
+    child of a factionless canon character still names by the other parent's realm;
+    only when neither parent has a faction does it fall back to the race default.
+    """
+    from .factions import default_culture_for_race
+    from .naming import generate_name
+
+    faction = _faction_of(world, mother) or _faction_of(world, father)
+    culture = faction.naming_culture if faction is not None else default_culture_for_race(mother.race)
+    taken = living_faction_names(world, faction.id if faction is not None else None)
+    return generate_name(culture, sex, rng.getrandbits(32), taken)
+
+
+def _faction_of(world: World, char: Character):
+    """The parent's faction record if it holds one (used to pick a naming register)."""
+    from .factions import Faction
+
+    faction = world.entities.get(char.faction_id) if char.faction_id is not None else None
+    return faction if isinstance(faction, Faction) else None
 
 
 def _bear_child(
@@ -420,7 +444,7 @@ def _bear_child(
     }
     return add_character(
         world,
-        name=_child_name(mother),
+        name=_child_name(world, rng, mother, father, sex),
         race=Race(mother.race),
         birth_year=world.current_year,
         sex=sex,
@@ -454,6 +478,13 @@ def characters(world: World, *, alive_only: bool = False) -> List[Character]:
     """All Character records in id order (optionally only those still in play)."""
     result = [e for _id, e in sorted(world.entities.items()) if isinstance(e, Character)]
     return [c for c in result if c.alive] if alive_only else result
+
+
+def living_faction_names(world: World, faction_id: Optional[int]) -> Set[str]:
+    """The names borne by living members of a faction (or the factionless pool when
+    ``faction_id`` is ``None``) — the disambiguation set a generated name must avoid
+    so a raised captain or a newborn never duplicates a living namesake (issue #34)."""
+    return {c.name for c in characters(world, alive_only=True) if c.faction_id == faction_id}
 
 
 # -- kinship: bloodlines as a query over parent_ids -----------------------
