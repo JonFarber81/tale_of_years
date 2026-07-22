@@ -13,6 +13,7 @@ from arda_sim.armies import (
     armies,
     army_at,
     find_path,
+    max_concurrent_hosts,
     movement,
     muster_size,
     tick_speed,
@@ -283,20 +284,90 @@ def test_a_provider_is_never_a_march_objective():
     assert army_mod._march_target(w, a) is None
 
 
-def test_a_faction_fields_only_one_standing_host_at_a_time():
+def test_a_weak_realm_fields_a_single_standing_host():
     w = World.new_run("cap")
     grid = _grid(4, 1, sites=[Site("Seat", 0, 0, "town", 1), Site("Foe", 3, 0, "town", 2)])
     w.grid = grid
     f = add_faction(w, "F", FactionKind.REALM, capital_location_id=1, aggression=90)
-    f.military_strength = 40
+    f.military_strength = 20  # below HOSTS_PER_STRENGTH: a single host at a time
+    assert max_concurrent_hosts(f) == 1
     enemy = add_faction(w, "Enemy", FactionKind.REALM, capital_location_id=2)
     f.at_war_with = [enemy.id]  # the at-war gate: a host needs a declared war
     f.current_intent = {"intent": Intent.MUSTER.value}
     first = movement(w, w.rng)
     second = movement(w, w.rng)
     assert sum(e.type == ARMY_MUSTERED_EVENT for e in first) == 1
-    assert sum(e.type == ARMY_MUSTERED_EVENT for e in second) == 0  # already committed
+    assert sum(e.type == ARMY_MUSTERED_EVENT for e in second) == 0  # at its one-host ceiling
     assert len([a for a in armies(w, alive_only=True) if a.faction_id == f.id]) == 1
+
+
+def test_a_strong_realm_fields_up_to_its_strength_scaled_ceiling():
+    w = World.new_run("cap")
+    grid = _grid(6, 1, sites=[Site("Seat", 0, 0, "town", 1), Site("Foe", 5, 0, "town", 2)])
+    w.grid = grid
+    f = add_faction(w, "F", FactionKind.REALM, capital_location_id=1, aggression=90)
+    f.military_strength = 80  # 1 + 80 // HOSTS_PER_STRENGTH(40) == 3 concurrent hosts
+    assert max_concurrent_hosts(f) == 3
+    enemy = add_faction(w, "Enemy", FactionKind.REALM, capital_location_id=2)
+    f.at_war_with = [enemy.id]
+    f.current_intent = {"intent": Intent.MUSTER.value}
+    # One host raised per tick (no cooldown while hosts are afield) up to the cap,
+    # then no more — a bounded multi-front war, not an unbounded swarm.
+    raised = [sum(e.type == ARMY_MUSTERED_EVENT for e in movement(w, w.rng)) for _ in range(5)]
+    assert raised == [1, 1, 1, 0, 0]
+    assert len([a for a in armies(w, alive_only=True) if a.faction_id == f.id]) == 3
+
+
+def test_a_realm_splits_its_hosts_across_multiple_enemies():
+    w = World.new_run("fronts")
+    grid = _grid(
+        6,
+        3,
+        sites=[
+            Site("Seat", 0, 1, "town", 1),
+            Site("FoeA", 5, 0, "town", 2),
+            Site("FoeB", 5, 2, "town", 3),
+        ],
+    )
+    w.grid = grid
+    f = add_faction(w, "F", FactionKind.REALM, capital_location_id=1, aggression=90)
+    f.military_strength = 200  # well past the ceiling: cap == MAX_CONCURRENT_HOSTS (4)
+    assert max_concurrent_hosts(f) == 4
+    foe_a = add_faction(w, "A", FactionKind.REALM, capital_location_id=2)
+    foe_b = add_faction(w, "B", FactionKind.REALM, capital_location_id=3)
+    foe_a.military_strength = 50  # the stronger threat: concentrate here first
+    foe_b.military_strength = 10
+    f.at_war_with = [foe_a.id, foe_b.id]
+    f.current_intent = {"intent": Intent.MUSTER.value}
+    for _ in range(4):  # four hosts, one per tick
+        movement(w, w.rng)
+    hosts = [h for h in armies(w, alive_only=True) if h.faction_id == f.id]
+    targets = sorted(h.target_faction_id for h in hosts)
+    # concentrate before spreading: the stronger foe (A) draws the first three hosts
+    # (a two-host head-start plus a reinforcement), then the surplus opens a second
+    # front on the weaker foe (B) — a bounded two-front war, not an even scatter.
+    assert targets == sorted([foe_a.id, foe_a.id, foe_a.id, foe_b.id])
+
+
+def test_a_host_stands_down_when_its_war_ends():
+    # A host must not outlive the war that raised it: once peace is made (or its
+    # foe leaves play), it disbands instead of zombie-garrisoning a former enemy's
+    # seat forever — which would otherwise pin a multi-front realm at its ceiling.
+    w = World.new_run("standdown")
+    grid = _grid(4, 1, sites=[Site("Seat", 0, 0, "town", 1), Site("Foe", 3, 0, "town", 2)])
+    w.grid = grid
+    f = add_faction(w, "F", FactionKind.REALM, capital_location_id=1, aggression=90)
+    f.military_strength = 20
+    enemy = add_faction(w, "Enemy", FactionKind.REALM, capital_location_id=2)
+    f.at_war_with = [enemy.id]
+    f.current_intent = {"intent": Intent.MUSTER.value}
+    movement(w, w.rng)  # host raised, marching on the enemy
+    assert [a.target_faction_id for a in armies(w, alive_only=True)] == [enemy.id]
+    f.at_war_with = []  # the war ends (peace made / foe subdued elsewhere)
+    enemy.at_war_with = []
+    events = movement(w, w.rng)
+    assert any(e.type == ARMY_DISBANDED_EVENT for e in events)  # it stood down
+    assert not [a for a in armies(w, alive_only=True) if a.faction_id == f.id]
 
 
 # -- muster cadence: at-war gate + size-scaled cooldown (issue #13) --------

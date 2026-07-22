@@ -71,6 +71,31 @@ MUSTER_COOLDOWN_BASE = 4
 MUSTER_COOLDOWN_PER_SIZE = 2500  # +1 year of rest per this much mustered size
 MUSTER_COOLDOWN_CAP = 15
 
+# Concurrent hosts (issue #33, ADR-0013; revisiting issue #13's one-host cadence).
+# A realm may keep
+# several hosts afield at once — one always, plus one per this much derived
+# military strength, plus (dark realm only) one per this much of Sauron's scalar.
+# So a great power wages a multi-front war while a small realm still fields a
+# single host, and — because muster size scales with the *same* strength — more
+# hosts never means a swarm of small levies (the tiny-army problem #13 fixed).
+# The muster cooldown still paces *re-raising* a host once one leaves play.
+HOSTS_PER_STRENGTH = 40  # +1 concurrent host per this much military_strength
+HOSTS_PER_SAURON_STRENGTH = 40  # dark realm only: +1 more per this much sauron_strength
+# Hard ceiling on concurrent hosts. Held at 4 (not 5) deliberately: a fifth
+# roaming host let even a *concentrating* Mordor intercept the whole coalition
+# that must storm Barad-dûr, and the Black Land never fell (ADR-0012). At 4, peak
+# Mordor still wages a two-front war yet leaves the West enough clear approaches
+# to take the seat late — durable, not invincible.
+MAX_CONCURRENT_HOSTS = 4
+
+# Concentrate-then-spread (issue #33, ADR-0013). A realm masses on its **strongest** enemy
+# before opening a second front: the primary threat carries this many hosts of
+# head-start, so a great host stays concentrated and only *surplus* hosts fan out
+# to weaker foes. Tuned with MAX_CONCURRENT_HOSTS so Mordor still splits across
+# fronts (peak: three hosts on its main foe, one peeled off) without its spread
+# breaking up every coalition that marches on it — the ADR-0012 fall stays reachable.
+PRIMARY_FRONT_HEAD_START = 2
+
 # March pace. A foot host makes ~180 miles a year; :func:`tick_speed` turns that
 # into an integer per-tick effort budget spent against tile move-costs (a tile is
 # ``miles_per_tile`` wide, plains cost 2 = the reference), so on open plains this
@@ -166,6 +191,21 @@ def muster_size(faction: Faction) -> int:
         + max(0, faction.military_strength) * MUSTER_PER_STRENGTH
         + max(0, faction.sauron_strength) * SAURON_MUSTER_PER_STRENGTH
     )
+
+
+def max_concurrent_hosts(faction: Faction) -> int:
+    """How many hosts ``faction`` may keep afield at once.
+
+    One host always, plus one per ``HOSTS_PER_STRENGTH`` of derived military
+    strength and (dark realm only) one per ``HOSTS_PER_SAURON_STRENGTH`` of
+    Sauron's scalar — a great power fights on several fronts while a small realm
+    fields a single host — capped at ``MAX_CONCURRENT_HOSTS``. Because
+    :func:`muster_size` scales with the same strength, a realm that fields more
+    hosts fields *bigger* ones, not a swarm of small levies.
+    """
+    extra = max(0, faction.military_strength) // HOSTS_PER_STRENGTH
+    extra += max(0, faction.sauron_strength) // HOSTS_PER_SAURON_STRENGTH
+    return min(MAX_CONCURRENT_HOSTS, 1 + extra)
 
 
 def host_cooldown_years(size: int) -> int:
@@ -274,9 +314,39 @@ def movement(world: World, rng: random.Random) -> List[Event]:
     if grid is None:
         return []
     events: List[Event] = []
+    events.extend(_stand_down_ended_wars(world))  # free capacity from hosts whose war is over
     events.extend(_muster(world, grid))
     for army in armies(world, alive_only=True):
         events.extend(_advance(world, grid, army))
+    return events
+
+
+def _stand_down_ended_wars(world: World) -> List[Event]:
+    """Disband every host whose war has ended: the raising realm is no longer at
+    war with the enemy it marched on (peace was made, or that enemy left play to a
+    third party). A host outlives neither its war nor its objective — standing it
+    down rests its contributors and frees the realm's muster capacity, instead of
+    leaving a zombie garrison pinned on a former foe's seat forever (which would
+    otherwise lock a multi-front realm at its host ceiling once its wars resolve).
+    """
+    events: List[Event] = []
+    for army in armies(world, alive_only=True):
+        target_id = army.target_faction_id
+        if target_id is None:
+            continue  # no objective (unreachable at muster) — it simply garrisons home
+        lead = _faction(world, army.faction_id) if army.faction_id is not None else None
+        if lead is not None and lead.is_at_war_with(target_id):
+            continue  # the war it marches to prosecute is still on
+        army.status = EntityStatus.DEAD.value
+        end_host(world, army)  # its contributors now rest under a muster cooldown
+        events.append(
+            world.new_event(
+                type=ARMY_DISBANDED_EVENT,
+                subject_ids=_army_subjects(army),
+                location_id=None,
+                payload={"cause": "war_ended", "faction_id": army.faction_id},
+            )
+        )
     return events
 
 
@@ -299,7 +369,10 @@ def _muster(world: World, grid: TileGrid) -> List[Event]:
         seat = _seat_tile(grid, faction)
         if seat is None:  # no capital to raise a host at (most cultures)
             continue
-        target = _march_target(world, faction)  # non-None: _can_muster gated on it
+        # Split a realm's several hosts across its enemies, but concentrate first:
+        # the strongest threat draws the opening hosts, surplus hosts open weaker
+        # fronts (see _march_target). Coverage counts this faction's standing hosts.
+        target = _march_target(world, faction, _covered_target_counts(world, faction.id))
         contributors = _coalition(world, faction, target)
         events.append(_raise_army(world, grid, faction, seat, target, contributors))
     return events
@@ -322,7 +395,7 @@ def _coalition(world: World, lead: Faction, target: Faction) -> List[Faction]:
             continue
         if world.current_year < other.muster_cooldown_until:
             continue
-        if _is_committed(world, other.id):
+        if _at_host_capacity(world, other):
             continue
         members.append(other)
     return members
@@ -341,21 +414,28 @@ def _bound_factions(world: World, lead: Faction) -> List[Faction]:
 
 
 def _can_muster(world: World, faction: Faction) -> bool:
-    """Whether ``faction`` may raise a host this tick: past its cooldown, not
-    already committed to a host, and holding an actual war enemy to march on."""
+    """Whether ``faction`` may raise a host this tick: past its cooldown, still
+    below its strength-scaled host ceiling, and holding a war enemy to march on."""
     if world.current_year < faction.muster_cooldown_until:
         return False
-    if _is_committed(world, faction.id):
+    if _at_host_capacity(world, faction):
         return False
     return _march_target(world, faction) is not None
 
 
-def _is_committed(world: World, faction_id: int) -> bool:
-    """Whether a faction already fields *or* lends a levy to a living host."""
-    for army in armies(world, alive_only=True):
-        if army.faction_id == faction_id or faction_id in army.contributor_ids:
-            return True
-    return False
+def _committed_host_count(world: World, faction_id: int) -> int:
+    """How many living hosts a faction currently leads *or* lends a levy to."""
+    return sum(
+        1
+        for army in armies(world, alive_only=True)
+        if army.faction_id == faction_id or faction_id in army.contributor_ids
+    )
+
+
+def _at_host_capacity(world: World, faction: Faction) -> bool:
+    """Whether ``faction`` already fields (or lends to) as many hosts as its
+    strength-scaled :func:`max_concurrent_hosts` ceiling allows."""
+    return _committed_host_count(world, faction.id) >= max_concurrent_hosts(faction)
 
 
 def end_host(world: World, army: Army) -> None:
@@ -548,19 +628,66 @@ def _people_race(people: str) -> Race:
     return _PEOPLE_RACE.get(people, Race.MAN)
 
 
-def _march_target(world: World, faction: Faction) -> Optional[Faction]:
-    """The war enemy a mustered host marches on, or ``None`` when there is none.
+def _threat(faction: Optional[Faction]) -> int:
+    """How dangerous an enemy is to overcome — its ordinary strength plus (dark
+    realm only) Sauron's scalar. Drives which front a realm concentrates on: the
+    strongest threat draws its first hosts before any surplus opens a new front."""
+    if faction is None:
+        return 0
+    return max(0, faction.military_strength) + max(0, faction.sauron_strength)
+
+
+def _march_target(
+    world: World, faction: Faction, coverage: Optional[Dict[int, int]] = None
+) -> Optional[Faction]:
+    """The war enemy a fresh host marches on, or ``None`` when there is none.
 
     Only an active, conquerable holder with a seat qualifies (providers hold no
-    ground and are never a march objective); the lowest-id at-war enemy wins. Mere
-    hostility no longer raises a host — a faction musters only when genuinely **at
-    war** (ADR-0009), which is exactly what this returning ``None`` gates on.
+    ground and are never a march objective). Mere hostility no longer raises a
+    host — a faction musters only when genuinely **at war** (ADR-0009), which is
+    exactly what this returning ``None`` gates on.
+
+    A realm **concentrates before it spreads**: given ``coverage`` (how many of
+    its standing hosts already march on each enemy), it fields against the front
+    of least coverage, but the strongest threat carries a ``PRIMARY_FRONT_HEAD_START``
+    head-start — so it draws the opening hosts before a second front opens, and
+    only surplus hosts then fan out to weaker enemies (ADR-0012 keeps Mordor's
+    fall reachable: the West still masses on the Shadow rather than scattering,
+    and Mordor cannot spread thin enough to intercept the whole coalition). Ties
+    break toward the greater threat, then the lower id. With no coverage the
+    strongest objective wins — the ``_can_muster`` gate only needs a front to exist.
     """
+    objectives: List[Faction] = []
     for enemy_id in faction.at_war_with:  # already sorted ascending
         enemy = _faction(world, enemy_id)
         if _is_march_objective(enemy):
-            return enemy
-    return None
+            objectives.append(enemy)
+    if not objectives:
+        return None
+    counts = coverage or {}
+    primary = max(objectives, key=lambda e: (_threat(e), -e.id))
+
+    def load(enemy: Faction) -> Tuple[int, int, int]:
+        # Least-covered front wins; the primary threat gets a head-start so it
+        # concentrates. Break ties toward the greater threat, then lower id.
+        head_start = PRIMARY_FRONT_HEAD_START if enemy.id == primary.id else 0
+        return (counts.get(enemy.id, 0) - head_start, -_threat(enemy), enemy.id)
+
+    return min(objectives, key=load)
+
+
+def _covered_target_counts(world: World, faction_id: int) -> Dict[int, int]:
+    """How many of a faction's living hosts (led *or* lent to) already march on
+    each war enemy — the per-front coverage that concentrates its next host
+    (see :func:`_march_target`)."""
+    counts: Dict[int, int] = {}
+    for army in armies(world, alive_only=True):
+        target_id = army.target_faction_id
+        if target_id is None:
+            continue
+        if army.faction_id == faction_id or faction_id in army.contributor_ids:
+            counts[target_id] = counts.get(target_id, 0) + 1
+    return counts
 
 
 def _is_march_objective(target: Optional[Faction]) -> bool:
