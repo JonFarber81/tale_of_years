@@ -1,7 +1,8 @@
 """Sauron's rise & canonicity (issue #5): the phase-7 strength formula
 (baseline × canonicity + emergent deltas, flattened at canonicity 0), the nine
-Nazgûl (seeded, immortal, hunting only on high strength + pull, unmade with the
-Ring), the terminal outcomes and their world flags, canon pressure as soft
+Nazgûl (seeded, immortal, riding on high strength alone — pull is only urgency,
+ADR-0016 — unmade with the Ring), the terminal outcomes and their world flags,
+canon pressure as soft
 weighting (intents biased, battle dice untouched), and persistence.
 """
 
@@ -20,7 +21,10 @@ from arda_sim.characters import (
 from arda_sim.entities import EntityStatus
 from arda_sim.factions import (
     FactionKind,
+    HUNT_STRENGTH_MIN,
     Intent,
+    _HUNT_BLOCKED,
+    _hunt_drive,
     add_faction,
     factions,
     seed_world,
@@ -162,14 +166,55 @@ def test_hunt_is_wired_between_movement_and_war():
     assert names.index("movement") < names.index("hunt") < names.index("war")
 
 
-def test_nazgul_hunt_only_when_strength_and_pull_are_both_high():
+def test_nazgul_do_not_ride_without_strength():
     world, _grid, _names = seed_world("nohunt")
     mordor = _mordor(world)
-    mordor.sauron_strength = 100  # strong Shadow...
-    the_ring(world).pull = 0  # ...but a silent Ring
+    mordor.sauron_strength = HUNT_STRENGTH_MIN - 1  # the Shadow is too weak...
+    the_ring(world).pull = 100  # ...however loudly the Ring stirs
     run_tick(world)
     assert mordor.current_intent.get("intent") != Intent.HUNT.value
     assert hunts(world, alive_only=True) == []
+
+
+def test_nazgul_ride_on_strength_even_when_the_ring_is_silent():
+    # ADR-0016: strength alone unlocks the hunt — a quiet Ring is still hunted.
+    # (Hunt-vs-war weighting is deferred to harness tuning, so we quiet Mordor's
+    # own wars here to isolate the unlock: with no enemy to march on, a strong
+    # Shadow rides for the Ring even though it lies wholly silent.)
+    world, _grid, _names = seed_world("silent")
+    mordor = _mordor(world)
+    mordor.sauron_strength = 100  # a strong Shadow...
+    mordor.disposition = {}  # ...with no foe to march against...
+    mordor.aggression = 0  # ...and no appetite for open war
+    the_ring(world).pull = 0  # a Ring gone wholly quiet (pull 0)
+    run_tick(world)
+    assert mordor.current_intent.get("intent") == Intent.HUNT.value
+    assert len(hunts(world, alive_only=True)) == 1
+
+
+def test_pull_is_urgency_not_a_gate_for_the_hunt():
+    # The drive is blocked below the strength threshold, unlocked at/above it even
+    # when the Ring is silent, and a louder Ring only raises the score (ADR-0016).
+    world, _grid, _names = seed_world("urgency")
+    mordor = _mordor(world)
+    ring = the_ring(world)
+    # The seeded Ring rests with a free bearer, so the hunt is never blocked for
+    # being already in the Shadow's keeping.
+    bearer = world.entities.get(ring.bearer_id)
+    assert getattr(bearer, "faction_id", None) != mordor.id
+
+    mordor.sauron_strength = HUNT_STRENGTH_MIN - 1
+    ring.pull = 90
+    assert _hunt_drive(world, mordor) == _HUNT_BLOCKED  # strength gates, not pull
+
+    mordor.sauron_strength = HUNT_STRENGTH_MIN
+    ring.pull = 0
+    quiet = _hunt_drive(world, mordor)
+    assert quiet > _HUNT_BLOCKED  # a silent Ring still unlocks the hunt
+
+    ring.pull = 50
+    louder = _hunt_drive(world, mordor)
+    assert louder > quiet  # pull remains an additive urgency term
 
 
 def test_nazgul_ride_when_strength_and_pull_are_high():
@@ -188,20 +233,73 @@ def test_nazgul_ride_when_strength_and_pull_are_high():
     )
 
 
-def test_hunt_turns_back_when_the_scent_goes_cold():
+def test_a_riding_hunt_does_not_turn_back_when_the_scent_fades():
+    # ADR-0016: a strength-driven hunt is bounded by its search budget, not by the
+    # scent — a Ring going quiet mid-chase no longer calls the Nine off.
     world, _grid, _names = seed_world("cold")
     mordor = _mordor(world)
     mordor.sauron_strength = 100
     the_ring(world).pull = 90
     run_tick(world)
     (hunt,) = hunts(world, alive_only=True)
-    the_ring(world).pull = 0  # the Ring goes quiet
+    the_ring(world).pull = 0  # the Ring goes wholly quiet mid-chase
     run_tick(world)
-    assert not hunt.alive
-    assert any(
+    assert hunt.alive  # it rides on, undeterred by the lost scent
+    assert not any(
         e.type == NAZGUL_HUNT_EVENT and e.payload.get("reason") == "lost_scent"
         for e in world.events
     )
+
+
+def test_a_riding_hunt_turns_back_only_when_its_budget_is_spent():
+    # With the scent-abort gone, the search budget is the sole patience bound: a
+    # hunt whose budget is exhausted (and not standing on the quarry) turns back.
+    world, _grid, _names = seed_world("spent")
+    mordor = _mordor(world)
+    mordor.sauron_strength = 100
+    the_ring(world).pull = 90
+    run_tick(world)
+    (hunt,) = hunts(world, alive_only=True)
+    the_ring(world).pull = 0  # quiet Ring — only the budget can end this now
+    hunt.search_budget = 1  # one tick of patience left
+    run_tick(world)
+    assert not hunt.alive
+    assert any(
+        e.type == NAZGUL_HUNT_EVENT and e.payload.get("reason") == "search_spent"
+        for e in world.events
+    )
+
+
+def test_a_quiet_ring_is_hunted_and_the_nine_reach_its_tile():
+    # The headline behaviour (ADR-0016): under a strong Shadow the Nine ride to a
+    # marooned, silent Ring (pull 0) and stand at last upon its very tile.
+    world, grid, _names = seed_world("quiet-quarry")
+    mordor = _mordor(world)
+    mordor.sauron_strength = 100  # the Shadow is strong...
+    mordor.disposition = {}  # ...with no foe to march against (isolate the unlock)...
+    mordor.aggression = 0  # ...and no appetite for open war
+    ring = the_ring(world)
+    ring.pull = 0  # ...but the Ring lies wholly quiet
+    # Maroon the quiet Ring in ruined Osgiliath, a short ride from Minas Morgul.
+    osgiliath = grid.site_id_of("Osgiliath")
+    site = grid.site_by_id(osgiliath)
+    ring.bearer_id = None
+    ring.location_id = osgiliath
+    ring.col, ring.row = site.col, site.row
+
+    run_tick(world)  # phase 2 unlocks the hunt on strength alone
+    assert mordor.current_intent.get("intent") == Intent.HUNT.value
+    (hunt,) = hunts(world, alive_only=True)
+
+    reached = False
+    for _ in range(60):  # ride, at most the search budget, tile by tile
+        run_tick(world)
+        if (hunt.col, hunt.row) == (ring.col, ring.row):
+            reached = True
+            break
+        if not hunt.alive:
+            break
+    assert reached, "the Nine never reached the quiet Ring's tile"
 
 
 def test_a_cornered_bearer_can_be_captured_and_the_ring_reclaimed():

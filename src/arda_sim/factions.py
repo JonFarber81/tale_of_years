@@ -511,11 +511,13 @@ _WITHDRAW_PENALTY = 60  # subtracted from attack/muster for a withdrawing factio
 ROUSE_STRENGTH_MIN = 60  # perceived sauron_strength that ends a withdrawal
 _ROUSE_URGENCY = 60  # flat attack weight a roused faction gains (grows as the Shadow does)
 
-# The hunt (issue #5): gates on the phase-7 scalars computed *last* tick — the
-# spec's deliberate one-tick lag. Blocked outright for every faction with no
-# ``sauron_strength``, and for the dark realm itself until both thresholds hold.
+# The hunt (issue #5, ADR-0016): gates on the phase-7 ``sauron_strength`` computed
+# *last* tick — the spec's deliberate one-tick lag. Blocked outright for every
+# faction with no ``sauron_strength``, and unlocked for the dark realm once its
+# strength crosses the threshold — the Nine ride when the Shadow is strong, even
+# toward a Ring gone quiet. The Ring's ``pull`` is no longer a gate: it only adds
+# urgency (see :func:`_hunt_drive`), so a marooned, silent Ring is still hunted.
 HUNT_STRENGTH_MIN = 45  # sauron_strength needed before the Nine ride
-HUNT_PULL_MIN = 35  # the Ring must have stirred (pull) this loudly
 _HUNT_URGENCY = 60  # flat weight once unlocked: a stirring Ring outranks a war
 _HUNT_BLOCKED = -10_000  # a score no jitter can rescue
 
@@ -598,10 +600,13 @@ def _hunt_drive(world: World, faction: Faction) -> int:
     """The hunt's phase-2 score for this faction, or blocked.
 
     Only the dark realm (the one faction carrying a ``sauron_strength``) may
-    hunt, and only while last phase 7's strength and the Ring's ``pull`` are both
-    over their thresholds — the spec's "high strength + high pull" trigger. The
-    Ring is read duck-typed (pull + bearer only, never mutated); a Ring already
-    in dark hands, destroyed, or absent blocks the hunt outright.
+    hunt, and the hunt unlocks on **strength alone** — last phase 7's
+    ``sauron_strength`` over :data:`HUNT_STRENGTH_MIN` (ADR-0016). The Ring's
+    ``pull`` is no longer a gate: it is folded into the returned score as an
+    *urgency* term, so a loud Ring draws the Nine sooner but a silent, marooned
+    Ring (pull 0) is still hunted. The Ring is read duck-typed (pull + bearer
+    only, never mutated); a Ring already in dark hands, destroyed, or absent
+    blocks the hunt outright.
     """
     if faction.sauron_strength < HUNT_STRENGTH_MIN:
         return _HUNT_BLOCKED
@@ -612,9 +617,7 @@ def _hunt_drive(world: World, faction: Faction) -> int:
             break
     if ring is None or ring.status != EntityStatus.ACTIVE.value:
         return _HUNT_BLOCKED
-    pull = int(getattr(ring, "pull", 0) or 0)
-    if pull < HUNT_PULL_MIN:
-        return _HUNT_BLOCKED
+    pull = int(getattr(ring, "pull", 0) or 0)  # urgency only — never a gate
     bearer_id = getattr(ring, "bearer_id", None)
     if bearer_id is not None:
         bearer = world.entities.get(bearer_id)
