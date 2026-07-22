@@ -48,6 +48,7 @@ from .annals_style import (
 )
 from .codex import CodexAddress, CodexPane
 from .codex_pages import CodexPages, RingTrendSample, living_armies
+from .theme import BRONZE, serif_font
 from .map_view import MapView
 from .sim_worker import SimWorker
 
@@ -150,11 +151,11 @@ class MainWindow(QMainWindow):
         self._year_label = QLabel(f"TA {START_YEAR}", self)
         self._year_label.setMinimumWidth(180)
         self._year_label.setAlignment(Qt.AlignCenter)
-        # Prominent: the current date is the viewer's anchor in time.
-        font = self._year_label.font()
-        font.setPointSize(font.pointSize() + 4)
-        font.setBold(True)
+        # Prominent: the current date is the viewer's anchor in time. In the
+        # chronicle's serif voice, gilt bronze — the running head of the annals.
+        font = serif_font(self.font().pointSize() + 5, bold=True)
         self._year_label.setFont(font)
+        self._year_label.setStyleSheet(f"color: {BRONZE.name()};")
         bar.addWidget(self._year_label)
 
     def _build_docks(self) -> None:
@@ -190,7 +191,8 @@ class MainWindow(QMainWindow):
                 "QPushButton { padding: 1px 8px; border: 1px solid palette(mid);"
                 f" border-left: 4px solid {color}; border-radius: 3px;"
                 " font-weight: bold; color: palette(mid); }"
-                " QPushButton:checked { color: palette(text); }"
+                " QPushButton:checked { color: palette(text);"
+                " border-color: palette(highlight); }"
             )
             # padding (8+8) + accent stripe (4) + borders (1+1) + a little slack,
             # so the styled sizeHint can never under-reserve the bold label.
@@ -213,6 +215,7 @@ class MainWindow(QMainWindow):
         self.setCorner(Qt.BottomLeftCorner, Qt.BottomDockWidgetArea)
         self.setCorner(Qt.BottomRightCorner, Qt.BottomDockWidgetArea)
         annals_dock = QDockWidget("Annals", self)
+        annals_dock.setTitleBarWidget(self._gilt_titlebar("Annals"))
         annals_dock.setWidget(annals_panel)
         self.addDockWidget(Qt.BottomDockWidgetArea, annals_dock)
 
@@ -224,8 +227,21 @@ class MainWindow(QMainWindow):
         # host page centres its marker — the armies-index row jump of #17.
         self._codex.navigated.connect(self._on_codex_navigated)
         codex_dock = QDockWidget("Codex", self)
+        codex_dock.setTitleBarWidget(self._gilt_titlebar("Codex"))
         codex_dock.setWidget(self._codex)
         self.addDockWidget(Qt.RightDockWidgetArea, codex_dock)
+
+    def _gilt_titlebar(self, text: str) -> QLabel:
+        """A dock's title as a gilt serif banner (Fusion won't colour the native
+        title text via stylesheet, so we own the whole title bar). Replacing the
+        title bar also pins these two core panes in place — no stray close/float.
+        """
+        label = QLabel(text, self)
+        label.setFont(serif_font(self.font().pointSize() + 1, bold=True))
+        label.setStyleSheet(
+            f"color: {BRONZE.name()}; background: #1e1f23; padding: 4px 8px;"
+        )
+        return label
 
     def _start_worker(self, playback: Playback) -> None:
         self._thread = QThread(self)

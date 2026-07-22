@@ -13,7 +13,7 @@ honours a custom :class:`QPalette` on every platform.
 
 from __future__ import annotations
 
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import QApplication
 
 # A dim slate palette. Kept as data so the two disabled-state tweaks below can
@@ -24,8 +24,31 @@ _ALT_BASE = QColor(45, 47, 52)        # zebra-striping in the annals list
 _TEXT = QColor(223, 225, 230)         # primary foreground
 _DIM_TEXT = QColor(150, 153, 160)     # disabled foreground
 _BUTTON = QColor(52, 54, 60)
-_ACCENT = QColor(94, 149, 224)        # highlight + HTML links (entity click-through)
 _ON_ACCENT = QColor(15, 16, 20)
+
+# Antique bronze — the one accent. Drives selection highlight, HTML links (entity
+# click-through), the illuminated year-dividers and dock titles. A warm gold that
+# stays legible on the dark base, evoking gilt on a chronicle's vellum.
+BRONZE = QColor(201, 162, 94)  # #c9a25e
+_ACCENT = BRONZE
+
+# The chronicle's serif voice for headers (year-dividers, dossier names, dock
+# titles). A fallback chain of book faces shipped with macOS, ending in the
+# generic ``serif`` so it degrades gracefully off-platform. Kept as a CSS string
+# too, for the HTML dossiers rendered in the Codex's QTextBrowser.
+SERIF_FAMILIES = ["Palatino", "Palatino Linotype", "Georgia", "Times New Roman"]
+SERIF_CSS = "'Palatino','Palatino Linotype','Georgia',serif"
+
+
+def serif_font(point_size: int | None = None, *, bold: bool = False) -> QFont:
+    """A header font in the chronicle's serif voice (see :data:`SERIF_FAMILIES`)."""
+    font = QFont()
+    font.setFamilies(SERIF_FAMILIES)
+    font.setStyleHint(QFont.Serif)
+    if point_size is not None:
+        font.setPointSize(point_size)
+    font.setBold(bold)
+    return font
 
 
 def dark_palette() -> QPalette:
@@ -53,6 +76,11 @@ def dark_palette() -> QPalette:
 
 
 def apply_dark_theme(app: QApplication) -> None:
-    """Pin the app to a dark Fusion look, independent of the OS appearance."""
+    """Pin the app to a dark Fusion look, independent of the OS appearance.
+
+    The dock titlebars are gilt separately, via custom title widgets on each dock
+    (:meth:`MainWindow._gilt_titlebar`) — Fusion won't colour the native title
+    text through a stylesheet, so the window owns those bars directly.
+    """
     app.setStyle("Fusion")
     app.setPalette(dark_palette())

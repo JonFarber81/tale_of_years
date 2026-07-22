@@ -23,8 +23,12 @@ from __future__ import annotations
 from html import escape as _escape
 from typing import Iterable, Tuple
 
+from .theme import BRONZE, SERIF_CSS
+
 # Mid-gray that stays legible on light and dark palettes (labels, kind-tags).
 DIM = "#8a8578"
+# The gilt bronze accent, as a CSS hex — dossier names and section heads.
+_BRONZE = BRONZE.name()
 # The accent for subjects with no identity color (unowned ground, unmapped).
 NEUTRAL_ACCENT = "#9c9588"
 
@@ -45,7 +49,8 @@ def banner(kind_tag: str, name: str, accent: str = NEUTRAL_ACCENT) -> str:
         f'<td width="5" bgcolor="{accent}">&nbsp;</td>'
         '<td style="padding-left: 8px">'
         f'<span style="color: {DIM}; font-size: small">{esc(kind_tag.upper())}</span><br>'
-        f'<span style="font-size: x-large; font-weight: bold">{esc(name)}</span>'
+        f'<span style="font-family: {SERIF_CSS}; font-size: x-large; '
+        f'font-weight: bold">{esc(name)}</span>'
         "</td></tr></table>"
     )
 
@@ -145,10 +150,10 @@ def sparkline(values: Iterable[float], width: int = 40) -> str:
 
 
 def section(title: str) -> str:
-    """A small-caps dimmed section header with breathing room above."""
+    """A serif, gilt section header with breathing room above."""
     return (
-        f'<p style="color: {DIM}; font-size: small; margin-bottom: 0px; '
-        f'margin-top: 12px"><b>{esc(title.upper())}</b></p>'
+        f'<p style="color: {_BRONZE}; font-family: {SERIF_CSS}; '
+        f'margin-bottom: 0px; margin-top: 12px">{esc(title.upper())}</p>'
     )
 
 
