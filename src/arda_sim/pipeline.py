@@ -24,6 +24,7 @@ from .diplomacy import diplomacy as _diplomacy  # phase 3
 from .economy import construction_economy as _construction_economy  # phase 6
 from .entities import Event
 from .factions import faction_decisions as _faction_decisions  # phase 3
+from .journeys import character_journeys as _character_journeys  # movers, before Ring
 from .ring import ring_system as _ring  # runs after war so it can read the field
 from .sauron import nazgul_hunt as _nazgul_hunt  # the Nine ride after armies march
 from .sauron import sauron_rise as _sauron_rise  # phase 7
@@ -45,6 +46,11 @@ def _salience_bookkeeping(world: World, rng: random.Random) -> List[Event]:  # p
 # reproducibility contract and must not change casually — see spec phase-flow.
 # ``hunt`` is the Nine's movement (the spec's phase-4 seam, after armies march);
 # the capture attempt itself resolves in the Ring phase, after war.
+# ``character_journeys`` is the ADR-0015 general character-mover seam: ordered
+# deliberately among the movers (armies' ``movement``, the Nine's ``hunt``) and
+# BEFORE the Ring phase, so an arriving traveller stands on the tile when the Ring
+# phase looks. Inserting a mover edits the reproducibility contract on purpose; the
+# phase is inert (no motive wires a journey yet), so seeded runs are unchanged.
 PIPELINE: Tuple[Tuple[str, System], ...] = (
     ("aging_births_deaths", _aging_births_deaths),
     ("succession", _succession),
@@ -52,6 +58,7 @@ PIPELINE: Tuple[Tuple[str, System], ...] = (
     ("diplomacy", _diplomacy),
     ("movement", _movement),
     ("hunt", _nazgul_hunt),
+    ("character_journeys", _character_journeys),
     ("war", _war),
     ("construction_economy", _construction_economy),
     ("ring", _ring),

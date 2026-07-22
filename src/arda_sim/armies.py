@@ -563,6 +563,8 @@ def _ablest(
     for char in characters(world, alive_only=True):
         if char.faction_id not in faction_ids or char.id in excluded:
             continue
+        if char.abroad:  # away on a journey (ADR-0015) — off the leader ladder
+            continue
         if char.role not in roles:
             continue
         if char.age(year) < RACE_CONFIG[Race(char.race)].maturity_age:
