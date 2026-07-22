@@ -3,7 +3,7 @@
 Status: **Accepted** (2026-07-20)
 
 Supersedes the spatial-substrate decision in ticket `01-spatial-substrate` and the
-"v7 image as canvas" rendering decision — see **Consequences**.
+"reference map as canvas" rendering decision — see **Consequences**.
 
 **Amended by ADR-0003 (2026-07-20):** the tick is now a **month**, not a year, so
 "yearly tick" below reads "monthly tick" and movement is a per-tick budget derived
@@ -13,15 +13,15 @@ otherwise unchanged.
 ## Context
 
 The v1 design (ticket 01, spec §"Spatial substrate") chose a **region-polygon +
-location/route graph** as the world model, stored in v7 pixel coordinates, and
-rendered by **blitting the v7 map image** as the canvas. Ticket 01 explicitly
+location/route graph** as the world model, stored in reference-map pixel coordinates, and
+rendered by **blitting a reference map of Middle-earth** as the canvas. Ticket 01 explicitly
 rejected a grid as "overkill at a yearly tick and painful to hand-author."
 
 Two later user decisions overturn the premises behind that choice:
 
 1. **Rendering:** the map should be drawn *in-engine* as a **tile map in the
-   Dwarf-Fortress idiom** — geography traced from Tolkien canon (v7 + other
-   references) but the visuals are the engine's own tiles, not the v7 photo.
+   Dwarf-Fortress idiom** — geography traced from Tolkien canon (reference maps
+   and other references) but the visuals are the engine's own tiles, not the reference map.
 2. **Substrate:** the **tiles should be the unit of simulation**, not merely a
    skin over a region graph. The viewer wants to watch territory spread, armies
    march, and borders form *on the grid*.
@@ -54,7 +54,7 @@ simulation.**
   mountain and river tiles** the pack lacks). Each tile draws its terrain sprite;
   faction territory is a per-tile owner tint over the terrain.
 - **Coordinates:** tile `(col, row)`; the authored terrain grid is fixed config.
-  A one-time calibration maps tiles to v7 pixels for tracing only.
+  A one-time calibration maps tiles to reference-map pixels for tracing only.
 - **Map labels** (render layer): site names (settlements/fortresses) and area
   names (region labels) render as **engine-drawn text items over the tiles** —
   zoom-aware level-of-detail (areas when zoomed out, sites when zoomed in),
@@ -87,4 +87,4 @@ simulation.**
   closer to the original spec, but territory snaps to pre-drawn regions and armies
   hop city-to-city — it doesn't deliver the emergent, watch-it-spread map the
   user wants. Rejected.
-- **Keep the v7 image as canvas.** Rejected per user decision (in-engine tiles).
+- **Keep the reference map as canvas.** Rejected per user decision (in-engine tiles).

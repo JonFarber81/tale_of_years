@@ -25,6 +25,6 @@ dock. This proves the tile substrate before the full theatre is authored (ticket
 - [x] Tests: loader is deterministic; terrain grid is config (excluded from the mutable-state save diff); only `owner_faction_id` (+ occupants) is per-tick state; movement-cost/passability lookups behave. — `tests/test_tiles.py`, `tests/test_tile_render.py`.
 
 <!-- SUPERSEDED (ADR-0001), kept for provenance:
-- Region (polygon in v7 px, terrain, adjacency, owner_faction_id, seat_location_id, base_yield), Location (point, region_id, type, owner), Route (endpoints, polyline, kind, length_miles).
-- pixels-per-mile calibration; region polygons coloured + locations marked over the v7 image blitted as canvas.
+- Region (polygon in reference-map px, terrain, adjacency, owner_faction_id, seat_location_id, base_yield), Location (point, region_id, type, owner), Route (endpoints, polyline, kind, length_miles).
+- pixels-per-mile calibration; region polygons coloured + locations marked over the reference map blitted as canvas.
 -->

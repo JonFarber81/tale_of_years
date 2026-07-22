@@ -12,7 +12,7 @@ Today no such thing exists: reading the Appendices is static, strategy games are
 
 ## Solution
 
-A watch-only desktop application (Python) that runs a deterministic, seeded simulation of NW Middle-earth starting at **TA 2965**, advancing **one month per tick** (`TICKS_PER_YEAR = 12`), open-ended, rendered on the pictorial **v7 Middle-earth map**. The viewer watches history stream past — an annals feed of dated events, coloured territory shifting between factions, armies marching, the Ring moving — and can pause, change speed, step a tick, scrub the timeline, and click any entity (character, faction, settlement, army, the Ring) to inspect its current state and full history. Dynamics are **emergent but weighted toward canon** by a single tunable **canonicity** knob (0–1): at 0 history is free; at 1 it leans hard toward the books. A human-shareable **string seed** plus the fixed scenario and canonicity setting deterministically reproduces any run.
+A watch-only desktop application (Python) that runs a deterministic, seeded simulation of NW Middle-earth starting at **TA 2965**, advancing **one month per tick** (`TICKS_PER_YEAR = 12`), open-ended, rendered on a **reference map of Middle-earth**. The viewer watches history stream past — an annals feed of dated events, coloured territory shifting between factions, armies marching, the Ring moving — and can pause, change speed, step a tick, scrub the timeline, and click any entity (character, faction, settlement, army, the Ring) to inspect its current state and full history. Dynamics are **emergent but weighted toward canon** by a single tunable **canonicity** knob (0–1): at 0 history is free; at 1 it leans hard toward the books. A human-shareable **string seed** plus the fixed scenario and canonicity setting deterministically reproduces any run.
 
 **This spec produces the v1 design only.** It is the blueprint handed to `/to-tickets` → `/implement`; it contains no game code.
 
@@ -29,7 +29,7 @@ A watch-only desktop application (Python) that runs a deterministic, seeded simu
 8. As a viewer, I want to seek past the simulated frontier to fast-forward the sim to a future year, so that I can advance quickly to see how things turn out.
 
 ### The map
-9. As a viewer, I want the v7 Middle-earth map as the canvas, so that the world looks like the Middle-earth I know.
+9. As a viewer, I want a reference map of Middle-earth as the canvas, so that the world looks like the Middle-earth I know.
 10. As a viewer, I want to pan and zoom the map, so that I can move between the Shire and Mordor.
 11. As a viewer, I want factions' territory shown as coloured region overlays, so that I can see who holds what at a glance.
 12. As a viewer, I want borders and contested zones to be visible, so that I can see frontiers and where fighting is likely.
@@ -134,7 +134,7 @@ A watch-only desktop application (Python) that runs a deterministic, seeded simu
 ### Architecture & the primary seam
 - **Framework-agnostic seeded simulation core that emits an immutable snapshot + event stream per tick (month); the PySide6/Qt UI is a pure consumer.** This is the single, highest testing seam: the entire sim is exercised headless (no UI) by driving ticks and observing world state, the event log, and determinism. *(Ticket 04, 02)*
 - **Language: Python. Watch-only** — no player control in v1. *(map Notes)*
-- **UI stack: PySide6/Qt.** Map is a `QGraphicsView`/`QGraphicsScene` (v7 image as a pixmap item; region polygons + location/army/Ring items on top, resolved by built-in item hit-testing). Panels are native Qt docks; the annals feed is a model-backed virtualized `QListView`; the timeline is a `QToolBar` (play/pause/step) + `QSlider` (scrub) + speed control. The sim runs on a `QThread` and delivers `(snapshot, events)` to the UI via signals. Backup stack: pygame-ce + pygame_gui. *(Ticket 04)*
+- **UI stack: PySide6/Qt.** Map is a `QGraphicsView`/`QGraphicsScene` (the reference map as a pixmap item; region polygons + location/army/Ring items on top, resolved by built-in item hit-testing). Panels are native Qt docks; the annals feed is a model-backed virtualized `QListView`; the timeline is a `QToolBar` (play/pause/step) + `QSlider` (scrub) + speed control. The sim runs on a `QThread` and delivers `(snapshot, events)` to the UI via signals. Backup stack: pygame-ce + pygame_gui. *(Ticket 04)*
 - **macOS packaging via Briefcase**; offline, no network dependency. *(Ticket 04)*
 
 ### Core object model — the `World` spine
@@ -166,8 +166,8 @@ A watch-only desktop application (Python) that runs a deterministic, seeded simu
 
 - **Tile substrate.** A fixed grid of terrain tiles at **~15 miles/tile** (~100×130 ≈ 13k tiles over the theatre). Each tile: static `terrain` + mutable **`owner_faction_id`** (authoritative territory) + optional feature/occupant refs. **Regions become named labels** (aggregate tags over tiles) for identity/prose only — ownership and borders are **per-tile and emergent**; "contested"/borders are *derived* from neighboring owners. *(ADR-0001; reshapes 06/07/08)*
 - **Movement is tile→tile** by deterministic pathfinding with per-terrain cost (roads = cheaper tiles); army/Ring/Nazgûl positions are tile coords; budget in **tiles/year** (miles/year ÷ 15). *(ADR-0001; 07/10)*
-- **Terrain** per tile (`plains/forest/mountain/hills/marsh/barren/water(river|lake|sea)/road`); impassability falls out of terrain + movement cost. Grid is fixed **config**; a one-time tile↔v7-pixel calibration is for tracing only. *(ADR-0001)*
-- **Rendering:** an in-engine **Dwarf-Fortress-style tile map** — Kenney roguelike sprites (**CC0**, in `references/tilesets/`) plus **custom mountain & river tiles**; faction territory is a per-tile owner tint over terrain. The v7 image is **reference for tracing only**, never the canvas. *(ADR-0001; 11)*
+- **Terrain** per tile (`plains/forest/mountain/hills/marsh/barren/water(river|lake|sea)/road`); impassability falls out of terrain + movement cost. Grid is fixed **config**; a one-time tile↔reference-map-pixel calibration is for tracing only. *(ADR-0001)*
+- **Rendering:** an in-engine **Dwarf-Fortress-style tile map** — Kenney roguelike sprites (**CC0**, in `references/tilesets/`) plus **custom mountain & river tiles**; faction territory is a per-tile owner tint over terrain. The reference map is **for tracing only**, never the canvas. *(ADR-0001; 11)*
 - **World extent: the tightened War-of-the-Ring theatre** (Eriador → Erebor/Dale → Gondor → Mordor). Far north and deep Harad are static backdrop. Off-map peoples attach as **abstract providers at edge gateway tiles** (Harad Road/Poros, E. Rhovanion, SE Nurn/Mordor, Umbar-sea). *(ADR-0001/06)*
 
 ### Characters & dynasties
@@ -259,8 +259,8 @@ A watch-only desktop application (Python) that runs a deterministic, seeded simu
 
 ## Further Notes
 
-- **Reference assets:** `references/Middle Earth v7.jpg` (the canvas; has the miles scale bar for calibration), `references/Eriador - TOR Hex Map.webp` (higher-detail terrain reference). Geography is fixed.
-- **Content-authoring is a build asset, not a design decision** — a single authoring pass produces: the region/route/location dataset in v7 pixel coordinates (with `seat_location_id` and `base_yield` per region); per-faction seed values (aggression/posture/disposition baselines); provider `output` → combat-modifier profiles; battle/siege tuning tables; the treaty taxonomy; Ring corruption/pull coefficients; the `canon_baseline(year)` curve; and per-event-type prose templates + phrase-grammar. `/to-tickets` should split this authoring from the engine work.
+- **Reference assets:** a reference map of Middle-earth (the canvas; has the miles scale bar for calibration) and a higher-detail hex reference for Eriador (higher-detail terrain reference). Geography is fixed.
+- **Content-authoring is a build asset, not a design decision** — a single authoring pass produces: the region/route/location dataset in reference-map pixel coordinates (with `seat_location_id` and `base_yield` per region); per-faction seed values (aggression/posture/disposition baselines); provider `output` → combat-modifier profiles; battle/siege tuning tables; the treaty taxonomy; Ring corruption/pull coefficients; the `canon_baseline(year)` curve; and per-event-type prose templates + phrase-grammar. `/to-tickets` should split this authoring from the engine work.
 - **Performance at scale** is the main open risk, sharpened by the monthly clock (12× the ticks, event-log growth, and snapshots of a yearly sim — see ADR-0003): an open-ended sim over centuries across the whole map. A research/prototype spike is expected to decide when 12's storage seam swaps JSON→SQLite and whether 11 falls back to keyframe+replay.
 - **Full decision provenance** lives in the wayfinder map at `.scratch/arda-history-v1/map.md` and the twelve resolved tickets in `.scratch/arda-history-v1/issues/`; each Implementation Decision above cites the ticket holding its rationale and rejected alternatives.
 - **Coherence-reviewed:** cross-ticket seams (phase order, shared fields, event catalog, tombstone status, faction/character prominence) were reconciled before this spec; the Nazgûl phase-flow, their Ring-destruction coupling, and the tombstone `status` enum are the corrections folded in.

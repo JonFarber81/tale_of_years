@@ -27,7 +27,7 @@ Every simulated thing is a plain **dataclass record** living in a typed collecti
 - **Entity base (shared by all):** `id`, `kind`, `name`, `created_year`, and a **`status`** field — `active` plus a small tombstone enum recording *how* it left play: `dead` (natural/violent), `departed` (Elves sailing West → 05), `destroyed` (the Ring at Mount Doom → 09; the Nazgûl unmade with it → 10). Tombstoned entities are **never deleted**, so references stay resolvable. (Coherence note: this replaces the earlier bare `alive` boolean, which 05/09/10 overloaded.)
 - **Character** *(→ 05)*: `race`, `birth_year`, `sex`, `location_id`, `faction_id`, `role`. Traits, kinship, succession → 05.
 - **Faction / realm** *(→ 06)*: `kind` (realm | culture | provider), `leader_id`, `capital_location_id`. Owned regions, disposition, goals, AI → 06.
-- **Region** *(config, → 01/06)*: `terrain`, `polygon` (v7 pixel coords), `adjacency` (region ids), `owner_faction_id`. Geometry is fixed config; only `owner_faction_id` is mutable state.
+- **Region** *(config, → 01/06)*: `terrain`, `polygon` (reference-map pixel coords), `adjacency` (region ids), `owner_faction_id`. Geometry is fixed config; only `owner_faction_id` is mutable state.
 - **Location** *(config point, → 01)*: `point` (pixel coords), `region_id`, `type` (city | fortress | ford | pass | gate | ruin), `owner_faction_id`, `settlement_id?`.
 - **Route** *(config edge, → 01)*: `endpoints` (location ids), `polyline`, `kind` (road | river | pass | open | forest), cached `length_miles`.
 - **Army / host** *(→ 07)*: `faction_id`, `leader_id`, `position` (a location id, or a `(route_id, progress)` pair), `size`. Composition, supply → 07.

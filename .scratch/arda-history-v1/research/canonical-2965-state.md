@@ -108,7 +108,7 @@ Model these as **abstract force/resource providers only** (ticket 06) — no int
 
 ## 6. Settlements & strongholds to place on the map
 
-Rough placement against the v7 Middle-earth map.
+Rough placement against a reference map of Middle-earth.
 
 **Gondor / South:** Minas Tirith (capital, Anduin at Mindolluin) · Osgiliath (half-ruined old capital, on Anduin) · Minas Morgul (Nazgûl-held, E. edge, formerly Minas Ithil) · Dol Amroth (Belfalas coast) · Pelargir (Anduin, downriver) · Umbar (far south haven, Corsairs).
 
