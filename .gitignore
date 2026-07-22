@@ -9,6 +9,8 @@ venv/
 .DS_Store
 *.ardasave.json
 
-# Vendored third-party agent skills (e.g. Matt Pocock's) — kept local-only,
+# Agent tooling — local-only, not useful in the public repo.
+# Vendored third-party agent skills (e.g. Matt Pocock's) kept local-only,
 # not redistributed. See README's note on Claude skills.
-.agents/skills/
+.agents/
+.claude/
