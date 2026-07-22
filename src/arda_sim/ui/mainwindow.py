@@ -13,6 +13,7 @@ from dataclasses import replace
 from typing import Dict, List, Optional
 
 from PySide6.QtCore import QMetaObject, Qt, QThread, Signal
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QDockWidget,
     QDoubleSpinBox,
@@ -186,21 +187,31 @@ class MainWindow(QMainWindow):
         self._bucket_chips: Dict[str, QPushButton] = {}
         chip_row = QHBoxLayout()
         chip_row.setContentsMargins(4, 4, 4, 0)
-        chip_row.setSpacing(4)
+        chip_row.setSpacing(6)
+        # Every chip is drawn bold in both states, so toggling checked never
+        # changes its width. Earlier the bold was applied only on :checked, which
+        # widened the label *after* the layout had reserved the non-bold width —
+        # the surplus bled past the border and the chips overlapped. We reserve
+        # the bold width up front and use colour alone to mark exclusion.
+        bold_font = self.font()
+        bold_font.setBold(True)
+        bold_metrics = QFontMetrics(bold_font)
         for bucket in BUCKETS:
-            chip = QPushButton(BUCKET_LABELS[bucket], self)
+            label = BUCKET_LABELS[bucket]
+            chip = QPushButton(label, self)
             chip.setCheckable(True)
             chip.setChecked(True)
-            chip.setToolTip(f"Show or hide {BUCKET_LABELS[bucket].lower()} events")
+            chip.setToolTip(f"Show or hide {label.lower()} events")
             color = BUCKET_COLORS[bucket].name()
-            # Base rule renders an excluded chip dim; :checked overrides it to
-            # full-strength (a negation selector proved unreliable here).
             chip.setStyleSheet(
                 "QPushButton { padding: 1px 8px; border: 1px solid palette(mid);"
                 f" border-left: 4px solid {color}; border-radius: 3px;"
-                " color: palette(mid); }"
-                " QPushButton:checked { color: palette(text); font-weight: bold; }"
+                " font-weight: bold; color: palette(mid); }"
+                " QPushButton:checked { color: palette(text); }"
             )
+            # padding (8+8) + accent stripe (4) + borders (1+1) + a little slack,
+            # so the styled sizeHint can never under-reserve the bold label.
+            chip.setMinimumWidth(bold_metrics.horizontalAdvance(label) + 24)
             chip.toggled.connect(self._apply_annals_filter)
             chip_row.addWidget(chip)
             self._bucket_chips[bucket] = chip
