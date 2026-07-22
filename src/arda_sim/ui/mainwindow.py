@@ -32,6 +32,7 @@ from .. import START_YEAR
 from ..armies import Army
 from ..characters import Character, render_bloodline
 from ..diplomacy import ALLIANCE, NEUTRALITY, VASSALAGE, stance
+from ..economy import faction_population
 from ..war import BATTLE_EVENT, SIEGE_EVENT, fortification
 from ..chronicle import AnnalsFilter, pulse_events, show_all_filter
 from ..entities import Event
@@ -479,9 +480,8 @@ class MainWindow(QMainWindow):
         return self.describe_ring(ring) if ring is not None else None
 
     # The still-stubbed indexes; each table lands with its own issue. Armies
-    # (#17) is live below, so it is no longer a blurb.
+    # (#17) and Factions (#19) are live below, so neither is a blurb.
     _INDEX_BLURBS = {
-        "factions": "The powers of the age, compared. Its table arrives with #19.",
         "wars": "The wars and bonds between realms. Its table arrives with #20.",
     }
 
@@ -492,6 +492,8 @@ class MainWindow(QMainWindow):
         name, _, sort = ident.partition("/")
         if name == "armies":
             return self._armies_index(sort or None)
+        if name == "factions":
+            return self._factions_index(sort or None)
         blurb = self._INDEX_BLURBS.get(name)
         if blurb is None:
             return None
@@ -611,6 +613,101 @@ class MainWindow(QMainWindow):
     def _codex_link(kind: str, ident: object, label: object) -> str:
         """An in-Codex ``codex://`` anchor (ident/label escaped)."""
         return f'<a href="codex://{kind}/{esc(ident)}">{esc(label)}</a>'
+
+    # The factions-index columns, in display order: (header label, sort key,
+    # descending?). The name column carries the row's link to its faction
+    # dossier; the roll opens greatest-realm-first, so population is the default.
+    _FACTION_COLUMNS = (
+        ("Faction", "name", False),
+        ("Kind", "kind", False),
+        ("Population", "population", True),
+        ("Strength", "strength", True),
+        ("Treasury", "treasury", True),
+        ("Leader", "leader", False),
+        ("Wars", "wars", True),
+    )
+    _DEFAULT_FACTION_SORT = "population"
+
+    def _factions_in(self, snapshot: Snapshot) -> List[Faction]:
+        """The living factions in a snapshot, in id order."""
+        return [
+            e
+            for _id, e in sorted(snapshot.entities.items())
+            if isinstance(e, Faction) and e.alive
+        ]
+
+    def _factions_index(self, sort: Optional[str]) -> str:
+        """The Factions index (#19): every power as a sortable table.
+
+        Each row names a faction (linking to its dossier), with its kind,
+        population, military strength, treasury, leader, and wars. Column
+        headers are sort links; the roll defaults to population, greatest first.
+        Reads only the displayed snapshot, like the rest of the Codex.
+        """
+        columns = {key: desc for _label, key, desc in self._FACTION_COLUMNS}
+        if sort not in columns:
+            sort = self._DEFAULT_FACTION_SORT
+        factions = (
+            self._factions_in(self._latest_snapshot)
+            if self._latest_snapshot is not None
+            else []
+        )
+        head = banner("Index", "Factions")
+        if not factions:
+            return head + dim_para("No factions stand in the displayed year.")
+        rows = [self._faction_index_row(faction) for faction in factions]
+        rows.sort(key=lambda row: row["sort"][sort], reverse=columns[sort])
+        headers = [
+            self._faction_index_header(label, key, sort)
+            for label, key, _desc in self._FACTION_COLUMNS
+        ]
+        return head + index_table(headers, (row["cells"] for row in rows))
+
+    def _faction_index_header(self, label: str, key: str, active: str) -> str:
+        """A column header: a sort link, or bold plain text for the live sort."""
+        if key == active:
+            return f"<b>{esc(label)}</b>"
+        return f'<a href="codex://index/factions/{key}">{esc(label)}</a>'
+
+    def _faction_index_row(self, faction: Faction) -> dict:
+        """One faction's index row: its sort values (per column key) and the
+        pre-composed HTML cells (name/leader/wars as links)."""
+        snapshot = self._latest_snapshot
+        leader = (
+            snapshot.entity(faction.leader_id)
+            if faction.leader_id is not None and snapshot is not None
+            else None
+        )
+        leader_name = leader.name if leader is not None else "—"
+        # A pure grid aggregate (economy.py): the world arg is unused, so the
+        # displayed snapshot's grid is all it needs.
+        population = faction_population(None, self._grid, faction.id)
+        names = self._faction_names
+        war_ids = sorted(faction.at_war_with, key=lambda f: names.get(f, str(f)))
+        wars = " · ".join(
+            self._faction_cell(fid, names.get(fid)) for fid in war_ids
+        )
+        cells = [
+            self._codex_link("faction", faction.id, faction.name),
+            esc(faction.faction_kind),
+            esc(population),
+            esc(faction.military_strength),
+            esc(faction.treasury),
+            esc(leader_name),
+            wars or "—",
+        ]
+        return {
+            "cells": cells,
+            "sort": {
+                "name": faction.name.lower(),
+                "kind": faction.faction_kind.lower(),
+                "population": population,
+                "strength": faction.military_strength,
+                "treasury": faction.treasury,
+                "leader": leader_name.lower(),
+                "wars": len(faction.at_war_with),
+            },
+        }
 
     def _search_page(self, query: str) -> str:
         return render_search_page(

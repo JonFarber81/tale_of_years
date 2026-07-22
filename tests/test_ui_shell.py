@@ -769,12 +769,13 @@ def test_codex_anchor_clicks_navigate_pages(qapp):
 
 
 def test_index_links_render_stub_pages(qapp):
-    # The still-unbuilt indexes are blurb stubs (armies is live, see below).
+    # The still-unbuilt indexes are blurb stubs (armies #17 and factions #19
+    # are live, see below); only wars #20 remains a blurb.
     from arda_sim.ui.codex import CodexAddress
 
     window = build_window("fellowship")
     try:
-        for name, marker in (("factions", "#19"), ("wars", "#20")):
+        for name, marker in (("wars", "#20"),):
             window._codex.navigate(CodexAddress("index", name))
             text = window._codex.browser.toPlainText()
             assert "INDEX" in text and name.title() in text and marker in text
@@ -875,6 +876,93 @@ def test_armies_index_is_empty_when_no_hosts_are_afield(qapp):
         window._latest_snapshot = Snapshot(tick=0, year=START_YEAR, entities={})
         html = window._index_page("armies")
         assert "Armies" in html and "No hosts are afield" in html
+    finally:
+        window.close()
+
+
+def _faction_entity(id_, name, **kw):
+    from arda_sim.factions import Faction
+
+    return Faction(
+        id=id_, kind="faction", created_year=START_YEAR, name=name, **kw
+    )
+
+
+def test_factions_index_lists_factions_as_linked_rows(qapp):
+    # The Factions index (#19): every power as a table, each name row linking
+    # to its dossier — read off the real seeded snapshot with live populations.
+    window = build_window("fellowship")
+    try:
+        snap, _ = window._playback.advance()
+        window._on_tick_advanced(snap, [])
+        gondor = next(k for k, v in window._faction_names.items() if v == "Gondor")
+        html = window._index_page("factions")
+        assert "INDEX" in html and "Factions" in html
+        # Every column the ticket asks for heads the table.
+        for header in ("Faction", "Kind", "Population", "Strength", "Treasury",
+                       "Leader", "Wars"):
+            assert header in html
+        # Each faction names a row that links to its dossier.
+        assert f'href="codex://faction/{gondor}"' in html and "Gondor" in html
+    finally:
+        window.close()
+
+
+def test_factions_index_re_sorts_by_the_ident_sort_key(qapp):
+    # codex://index/factions/<key> renders the same page under a different sort;
+    # the active column head is bold text, the rest are sort links.
+    window = build_window("fellowship")
+    try:
+        # Treasury order (rich, poor) is the reverse of name order (Poor<Rich).
+        rich = _faction_entity(9001, "Rich Realm", treasury=5000, military_strength=10)
+        poor = _faction_entity(9002, "Poor Realm", treasury=10, military_strength=90)
+        window._latest_snapshot = Snapshot(
+            tick=0, year=START_YEAR, entities={9001: rich, 9002: poor}
+        )
+        by_treasury = window._index_page("factions/treasury")
+        assert "<b>Treasury</b>" in by_treasury  # active sort head is bold
+        assert 'href="codex://index/factions/name"' in by_treasury  # others link
+        assert by_treasury.index("Rich Realm") < by_treasury.index("Poor Realm")
+        # Sorting by name reverses that order.
+        by_name = window._index_page("factions/name")
+        assert "<b>Faction</b>" in by_name
+        assert by_name.index("Poor Realm") < by_name.index("Rich Realm")
+        # An unknown sort key falls back to the default, not a dead page.
+        assert (
+            window._index_page("factions/nonsense")
+            == window._index_page("factions")
+        )
+    finally:
+        window.close()
+
+
+def test_factions_index_shows_population_and_linked_wars(qapp):
+    # Population reads through economy.faction_population, and each war names
+    # the enemy realm with a link to its dossier.
+    window = build_window("fellowship")
+    try:
+        gondor = next(k for k, v in window._faction_names.items() if v == "Gondor")
+        mordor = next(k for k, v in window._faction_names.items() if v == "Mordor")
+        from arda_sim.economy import faction_population
+
+        expected = faction_population(None, window._grid, gondor)
+        realm = _faction_entity(gondor, "Gondor", at_war_with=[mordor])
+        window._latest_snapshot = Snapshot(
+            tick=0, year=START_YEAR, entities={gondor: realm}
+        )
+        html = window._index_page("factions")
+        assert str(expected) in html  # the derived population renders
+        assert f'href="codex://faction/{mordor}"' in html  # the war enemy links
+    finally:
+        window.close()
+
+
+def test_factions_index_is_empty_when_no_factions_stand(qapp):
+    window = build_window("fellowship")
+    try:
+        window._latest_snapshot = Snapshot(tick=0, year=START_YEAR, entities={})
+        html = window._index_page("factions")
+        assert "Factions" in html and "No factions stand" in html
     finally:
         window.close()
 
