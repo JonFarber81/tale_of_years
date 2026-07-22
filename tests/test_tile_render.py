@@ -153,7 +153,7 @@ def test_inspection_describes_clicked_tile(qapp):
         # site, so the test tracks substrate re-authoring instead of pinning a
         # coordinate that silently goes stale). It sits in the Gondor-owned block.
         mt = next(s for s in window._grid.sites if s.name == "Minas Tirith")
-        text = window.describe_tile(mt.col, mt.row)
+        text = window._pages.describe_tile(mt.col, mt.row)
         # Most-specific-first (inspection-ui 02): the site headlines the
         # dossier, with its rank and its holder.
         assert "SITE" in text and "Minas Tirith" in text
@@ -345,10 +345,15 @@ def test_the_ring_is_inspectable_with_its_scalars_and_journey(qapp):
         world, grid, names = seed_world("fellowship")
         run_years(world, 10)
         ring = the_ring(world)
-        window._latest_snapshot = snapshot_world(world, world.tick)
-        window._events = list(world.events)
-        window._display_year = world.current_year
-        html = window.describe_tile(ring.col, ring.row)
+        # Feed the Codex renderer the built world's view directly (the renderer
+        # reads only its stored context now — #39).
+        window._pages.update(
+            snapshot=snapshot_world(world, world.tick),
+            events=list(world.events),
+            display_year=world.current_year,
+            ring_trend=[],
+        )
+        html = window._pages.describe_tile(ring.col, ring.row)
         assert "One Ring" in html
         assert "Corruption" in html and "Pull" in html
     finally:
