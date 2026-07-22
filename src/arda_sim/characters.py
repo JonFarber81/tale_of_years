@@ -169,6 +169,7 @@ class Character(Entity):
     spouse_id: Optional[int] = None
     weariness: int = 0  # Elves only; accrues toward departure over the Sea
     prominence: int = 0  # derived salience (role + trait magnitude + title)
+    abroad: bool = False  # on a journey (ADR-0015); skipped by the leader ladder while away
 
     def age(self, year: int) -> int:
         return year - self.birth_year
