@@ -271,6 +271,26 @@ def test_intent_scoring_is_deterministic_under_seed():
     assert {f.name: f.current_intent for f in factions(c)} != intents_a
 
 
+def test_rising_shadow_rouses_a_withdrawn_realm_to_attack():
+    # An Elf realm withdraws (fortify wins) while the Shadow is quiet, but once the
+    # perceived sauron_strength crosses ROUSE_STRENGTH_MIN its dread of the dark
+    # realm it most hates lifts the withdrawal and tips the menu to ATTACK — the
+    # elves come forth when Mordor grows strong.
+    from arda_sim.factions import ROUSE_STRENGTH_MIN, _score_intents
+
+    world, _grid, _ = seed_world("rouse")
+    lorien = next(f for f in factions(world) if f.name == "Lothlórien")
+    assert lorien.posture == Posture.WITHDRAWING.value
+
+    quiet = _score_intents(lorien, canonicity=1.0, shadow=0)
+    assert max(quiet, key=quiet.get) == Intent.FORTIFY
+
+    loud = _score_intents(lorien, canonicity=1.0, shadow=ROUSE_STRENGTH_MIN + 40)
+    assert max(loud, key=loud.get) == Intent.ATTACK
+    # and a mightier Shadow rouses harder than a bare crossing
+    assert loud[Intent.ATTACK] > quiet[Intent.ATTACK]
+
+
 def test_canonicity_nudges_a_factions_canon_move():
     # Rohan's canon move is 'muster' (goals[0]). A high canonicity weight should
     # lift muster's score relative to a zero-canon world for the same faction.
