@@ -496,7 +496,9 @@ def test_dossier_html_primitives(qapp):
     assert "Treasury" not in grid  # None values drop their row
     assert stat_grid([]) == ""
 
-    assert "<b>DIPLOMACY</b>" in section("Diplomacy")
+    # The section head is upper-cased, gilt bronze, and in the serif voice.
+    sec = section("Diplomacy")
+    assert "DIPLOMACY" in sec and "serif" in sec
 
 
 def test_sparkline_traces_a_series_shape(qapp):

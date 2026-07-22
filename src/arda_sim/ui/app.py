@@ -20,6 +20,7 @@ from ..scenarios import load_scenario
 from ..validate import check_grid
 from ..world import World
 from .mainwindow import MainWindow
+from .theme import apply_dark_theme
 
 # The full War-of-the-Ring theatre (ADR-0001 / build ticket 04). The Gondor
 # slice (gondor_stub) remains on file as the substrate's first proving ground.
@@ -71,6 +72,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     app = QApplication(sys.argv[:1])
+    apply_dark_theme(app)  # pin a dark look, not the OS's time-of-day appearance
     window = build_window(args.seed, canonicity=args.canonicity)
     window.resize(1280, 800)
     window.show()

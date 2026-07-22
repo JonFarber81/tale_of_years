@@ -18,9 +18,11 @@ from __future__ import annotations
 from typing import Dict, Optional
 
 from PySide6.QtCore import QRect, QSize, Qt
-from PySide6.QtGui import QColor, QPainter, QPolygon
+from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPolygon
 from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
+
+from .theme import BRONZE, serif_font
 
 from ..armies import ARMY_ARRIVED_EVENT, ARMY_DISBANDED_EVENT, ARMY_MUSTERED_EVENT
 from ..characters import BIRTH_EVENT, DEATH_EVENT, DEPARTED_EVENT
@@ -118,6 +120,9 @@ BUCKET_COLORS: Dict[str, QColor] = {
     CONSTRUCTION: QColor("#4c9a5e"),
 }
 
+# The year-divider hairline: a dim bronze, keyed to the gilt year text above it.
+_RULE_BRONZE = QColor(BRONZE.red(), BRONZE.green(), BRONZE.blue(), 90)
+
 _STRIPE_W = 3  # the bucket accent stripe, px
 _PAD = 6  # horizontal padding inside a row, px
 _V_PAD = 3  # vertical padding, px
@@ -152,18 +157,20 @@ class AnnalsDelegate(QStyledItemDelegate):
     ) -> None:
         rect = option.rect
         painter.fillRect(rect, option.palette.alternateBase())
-        font = option.font
-        font.setBold(True)
+        # The year-divider is the chronicle's running head: serif and gilt bronze,
+        # so each year reads as an illuminated section break, not a plain row.
+        font = serif_font(bold=True)
+        font.setPointSizeF(option.font.pointSizeF() + 1)
         painter.setFont(font)
-        painter.setPen(option.palette.text().color())
+        painter.setPen(BRONZE)
+        fm = QFontMetrics(font)
         text_rect = rect.adjusted(_PAD, 0, -_PAD, 0)
         painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, text or "")
-        # A hairline rule carries the divider across the rest of the band.
-        fm = option.fontMetrics
+        # A hairline rule carries the divider across the rest of the band, in a
+        # dim bronze that ties it to the gilt year.
         rule_x = text_rect.left() + fm.horizontalAdvance(text or "") + _PAD
         if rule_x < text_rect.right():
-            rule = option.palette.mid().color()
-            painter.setPen(rule)
+            painter.setPen(_RULE_BRONZE)
             mid_y = rect.center().y()
             painter.drawLine(rule_x, mid_y, text_rect.right(), mid_y)
 
