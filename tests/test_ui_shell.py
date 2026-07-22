@@ -269,7 +269,11 @@ def test_marching_hosts_render_and_are_inspectable(qapp):
     # layer draws them and clicking a host's tile inspects it (ticket 10).
     window = build_window("campaign")  # roster + factions seeded
     try:
-        for snap, evs in window._playback.fast_forward_to(12 * TICKS_PER_YEAR):
+        # TA 2965 opens quiet by design: war is gated on provocation & readiness
+        # (issue #26), so the "campaign" seed raises its first host only once
+        # Sauron's rise crosses the visibility threshold — deterministically at
+        # year 27. Fast-forward safely past that so at least one host is afield.
+        for snap, evs in window._playback.fast_forward_to(30 * TICKS_PER_YEAR):
             window._on_frontier_changed(window._playback.frontier)
             window._on_tick_advanced(snap, evs)
         hosts = living_armies(window._latest_snapshot)
