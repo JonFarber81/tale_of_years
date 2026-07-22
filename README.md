@@ -5,11 +5,10 @@
 > ### ⚠️ A note on what this really is
 >
 > **This project is, first and foremost, a personal playground for getting better
-> at working with [Claude Code](https://claude.com/claude-code).** The point is to
-> push on what an AI coding agent can do — how far to trust it, how to structure a
+> at working with Claude Code.** The point is to
+> push on what I can do with an AI coding agent. Learning how far to trust it, how to structure a
 > codebase so it stays navigable, where it shines and where it needs a short leash
-> — while building something genuinely fun to watch. The Middle-earth simulation is
-> the *excuse*; the craft of driving the agent well is the *goal*.
+> — while building something genuinely fun to watch. 
 >
 > The great majority of this code was written by Claude Code, and the workflow
 > leans heavily on **[Matt Pocock](https://www.aihero.dev/)'s Claude skills** —
