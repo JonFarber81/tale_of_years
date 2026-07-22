@@ -143,6 +143,12 @@ def _faction_entity(id_, name, **kw):
     )
 
 
+def _char_entity(id_, name, **kw):
+    return Character(
+        id=id_, kind="character", created_year=START_YEAR, name=name, **kw
+    )
+
+
 # -- tile / site / host dossiers -----------------------------------------
 
 
@@ -761,3 +767,65 @@ def test_dynasty_renderer_roots_at_a_character():
     # A malformed / unknown-type dynasty ident stays a dead link.
     assert pages.render(CodexAddress("dynasty", "character:nope")) is None
     assert pages.render(CodexAddress("dynasty", "wraith:1")) is None
+
+
+# -- characters index -----------------------------------------------------
+
+
+def test_characters_index_lists_people_as_linked_rows():
+    # The Characters index: every person in the snapshot as a table, each name
+    # row linking to their dossier — read off the real seeded roster.
+    pages, playback = build_pages("fellowship")
+    _advance(pages, playback, 1)
+    ecthelion = _character_named(pages, "Ecthelion II")
+    html = pages._index_page("characters")
+    assert "INDEX" in html and "Characters" in html
+    for header in ("Name", "Race", "Faction", "Role", "Status", "Age", "Prominence"):
+        assert header in html
+    assert f'href="codex://character/{ecthelion.id}"' in html
+    assert "Ecthelion II" in html
+    # A ruler's faction links out to its dossier.
+    assert f'href="codex://faction/{ecthelion.faction_id}"' in html
+
+
+def test_characters_index_re_sorts_by_the_ident_sort_key():
+    # codex://index/characters/<key> renders the same page under a different
+    # sort; the active column head is bold text, the rest are sort links.
+    pages, _playback = build_pages("fellowship")
+    # Prominence order (great, minor) is the reverse of name order (Aa < Zz).
+    great = _char_entity(9001, "Zzyzx the Great", prominence=200)
+    minor = _char_entity(9002, "Aaric the Minor", prominence=5)
+    pages._latest_snapshot = Snapshot(
+        tick=0, year=START_YEAR, entities={9001: great, 9002: minor}
+    )
+    by_prominence = pages._index_page("characters/prominence")
+    assert "<b>Prominence</b>" in by_prominence  # active sort head is bold
+    assert 'href="codex://index/characters/name"' in by_prominence  # others link
+    assert (
+        by_prominence.index("Zzyzx the Great") < by_prominence.index("Aaric the Minor")
+    )
+    # Sorting by name reverses that order.
+    by_name = pages._index_page("characters/name")
+    assert "<b>Name</b>" in by_name
+    assert by_name.index("Aaric the Minor") < by_name.index("Zzyzx the Great")
+    # An unknown sort key falls back to the default, not a dead page.
+    assert pages._index_page("characters/nonsense") == pages._index_page("characters")
+
+
+def test_characters_index_is_snapshot_scoped_and_can_be_empty():
+    # Dead/departed people stay listed (records persist); an empty snapshot
+    # says so rather than rendering a bare table.
+    from arda_sim.entities import EntityStatus
+
+    pages, _playback = build_pages("fellowship")
+    dead = _char_entity(
+        9001, "Old Ghost", status=EntityStatus.DEAD.value, prominence=10
+    )
+    pages._latest_snapshot = Snapshot(
+        tick=0, year=START_YEAR, entities={9001: dead}
+    )
+    html = pages._index_page("characters")
+    assert "Old Ghost" in html and "dead" in html  # the dead remain in the roll
+    pages._latest_snapshot = Snapshot(tick=0, year=START_YEAR, entities={})
+    empty = pages._index_page("characters")
+    assert "Characters" in empty and "No people walk" in empty

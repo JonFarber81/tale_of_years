@@ -292,12 +292,14 @@ class CodexPages:
         """An index page. The ident is the index name, optionally followed by a
         ``/<sort>`` — so ``armies`` and ``armies/faction`` are the same page
         under different sort orders (each an ordinary history entry). Every
-        listed index (#17/#19/#20) is live; an unknown name is a dead link."""
+        listed index (#17/#19/#20/#18) is live; an unknown name is a dead link."""
         name, _, sort = ident.partition("/")
         if name == "armies":
             return self._armies_index(sort or None)
         if name == "factions":
             return self._factions_index(sort or None)
+        if name == "characters":
+            return self._characters_index(sort or None)
         if name == "wars":
             return self._wars_index(sort or None)
         return None
@@ -509,6 +511,90 @@ class CodexPages:
                 "treasury": faction.treasury,
                 "leader": leader_name.lower(),
                 "wars": len(faction.at_war_with),
+            },
+        }
+
+    # The characters-index columns, in display order: (header label, sort key,
+    # descending?). The name column carries the row's link to the character
+    # dossier; the roll opens most-prominent-first, so prominence is the default.
+    _CHARACTER_COLUMNS = (
+        ("Name", "name", False),
+        ("Race", "race", False),
+        ("Faction", "faction", False),
+        ("Role", "role", False),
+        ("Status", "status", False),
+        ("Age", "age", True),
+        ("Prominence", "prominence", True),
+    )
+    _DEFAULT_CHARACTER_SORT = "prominence"
+
+    def _characters_index(self, sort: Optional[str]) -> str:
+        """The Characters index (#18): every person in the snapshot as a table.
+
+        Each row names a character (linking to their dossier), with race,
+        faction (linked), role/title, life status, age, and prominence. Column
+        headers are sort links; the roll defaults to prominence, greatest first.
+        Snapshot-scoped like the rest of the Codex — dead and departed people
+        stay listed (their records persist), so scrubbing changes who appears.
+        """
+        columns = {key: desc for _label, key, desc in self._CHARACTER_COLUMNS}
+        if sort not in columns:
+            sort = self._DEFAULT_CHARACTER_SORT
+        characters = (
+            self._characters_in(self._latest_snapshot)
+            if self._latest_snapshot is not None
+            else []
+        )
+        head = banner("Index", "Characters")
+        if not characters:
+            return head + dim_para("No people walk the record in the displayed year.")
+        rows = [self._character_index_row(char) for char in characters]
+        rows.sort(key=lambda row: row["sort"][sort], reverse=columns[sort])
+        headers = [
+            self._character_index_header(label, key, sort)
+            for label, key, _desc in self._CHARACTER_COLUMNS
+        ]
+        return head + index_table(headers, (row["cells"] for row in rows))
+
+    def _character_index_header(self, label: str, key: str, active: str) -> str:
+        """A column header: a sort link, or bold plain text for the live sort."""
+        if key == active:
+            return f"<b>{esc(label)}</b>"
+        return f'<a href="codex://index/characters/{key}">{esc(label)}</a>'
+
+    def _character_index_row(self, char: Character) -> dict:
+        """One person's index row: its sort values (per column key) and the
+        pre-composed HTML cells (name linking to the dossier, faction linked)."""
+        faction = (
+            self._faction(char.faction_id)
+            if char.faction_id is not None
+            else None
+        )
+        faction_name = faction.name if faction is not None else None
+        role = char.title or (
+            char.role.title() if char.role and char.role != Role.NONE.value else "—"
+        )
+        status = self._character_status_word(char)
+        age = char.age(self._display_year)
+        cells = [
+            self._codex_link("character", char.id, char.name),
+            esc(char.race.title()),
+            self._faction_cell(char.faction_id, faction_name),
+            esc(role),
+            esc(status),
+            esc(age),
+            esc(char.prominence),
+        ]
+        return {
+            "cells": cells,
+            "sort": {
+                "name": char.name.lower(),
+                "race": char.race.lower(),
+                "faction": (faction_name or "").lower(),
+                "role": role.lower(),
+                "status": status,
+                "age": age,
+                "prominence": char.prominence,
             },
         }
 
