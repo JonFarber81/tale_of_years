@@ -1,13 +1,29 @@
-# arda_history
+# The Tale of Years
 
 **Watch the Third Age of Middle-earth write its own history.**
 
-`arda_history` is a seeded, deterministic simulation of north-west Middle-earth
-that begins at **TA 2965** and advances **one month at a time**, open-ended. It
-does not replay the books — it grows an *alternate* history tick by tick from an
-accurate starting roster, on the pictorial Middle-earth map: characters are born
-and die, crowns pass, realms rise and are absorbed, factions warm to allies and
-declare war. You watch it stream past in an annals feed and on coloured
+> ### ⚠️ A note on what this really is
+>
+> **This project is, first and foremost, a personal playground for getting better
+> at working with [Claude Code](https://claude.com/claude-code).** The point is to
+> push on what an AI coding agent can do — how far to trust it, how to structure a
+> codebase so it stays navigable, where it shines and where it needs a short leash
+> — while building something genuinely fun to watch. The Middle-earth simulation is
+> the *excuse*; the craft of driving the agent well is the *goal*.
+>
+> The great majority of this code was written by Claude Code, and the workflow
+> leans heavily on **[Matt Pocock](https://www.aihero.dev/)'s Claude skills** —
+> his packaged agent skills for TDD, code review, domain modeling, deep-module
+> interface design, refactor planning, and the rest do a lot of the heavy lifting
+> in how the work gets planned, built, and reviewed. Treat the code as an artifact
+> of that experiment as much as an app.
+
+`The Tale of Years` is a seeded, deterministic simulation of north-west
+Middle-earth that begins at **TA 2965** and advances **one month at a time**,
+open-ended. It does not replay the books — it grows an *alternate* history tick by
+tick from an accurate starting roster, rendered on a tiled map: characters are
+born and die, crowns pass, realms rise and are absorbed, factions warm to allies
+and declare war. You watch it stream past in an annals feed and on coloured
 territory; you can pause, change speed, step a month, scrub the timeline, and
 click any power — or any event in the annals — to read its dossier.
 
@@ -114,7 +130,7 @@ chip to hide that category. Clicking an event opens its **dossier** in the
 Inspection dock (battles, sieges, conquests, and razings render as composed
 prose from the recorded facts), and an event that happened *somewhere* — marked
 with a pin — also pans the map to the spot with a transient pulse. Zoom runs
-from the whole map just fitting the window down to street level.
+from the whole map just fitting the window down to tile level.
 
 ### Run it headless
 
@@ -130,7 +146,7 @@ arda-sim --load run.json --years 50                        # resume, bit-identic
 
 ```bash
 pip install -e ".[dev]"
-pytest            # ~330 tests; the whole sim is exercised headless
+pytest            # ~350 tests; the whole sim is exercised headless
 ```
 
 Determinism is a first-class, tested property: runs are compared for
