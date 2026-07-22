@@ -991,11 +991,16 @@ def _faction(world: World, faction_id: Optional[int]) -> Optional[Faction]:
 # =========================================================================
 
 def _battle_subjects(winner: Army, loser: Army) -> List[int]:
-    """Both hosts and both factions name a battle (so it reads on every timeline)."""
+    """Both hosts, both factions, and both generals name a battle — so a battle reads
+    on every host, faction, and commander timeline. Naming the generals is what makes
+    a generated captain's deeds legible via ``character_timeline`` (issue #34)."""
     subjects = [winner.id, loser.id]
     for fid in (winner.faction_id, loser.faction_id):
         if fid is not None:
             subjects.append(fid)
+    for lid in (winner.leader_id, loser.leader_id):
+        if lid is not None and lid not in subjects:
+            subjects.append(lid)
     return subjects
 
 

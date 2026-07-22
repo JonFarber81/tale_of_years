@@ -592,22 +592,38 @@ def generate_captain(world: World, lead: Faction) -> Character:
     so a run stays byte-stable. This deliberately grows a new, generated
     sub-population of captains over a long history.
     """
-    from .characters import add_character
+    from .characters import add_character, characters
+    from .naming import choose_sex, generate_name
 
     race = _people_race(lead.people)
     mature = RACE_CONFIG[race].maturity_age
     mix = (lead.id * 2_654_435_761 + world.tick * 40_503) & 0xFFFFFFFF
     martial = _CAPTAIN_TRAIT_BASE + mix % _CAPTAIN_TRAIT_SPREAD
     leadership = _CAPTAIN_TRAIT_BASE + (mix // _CAPTAIN_TRAIT_SPREAD) % _CAPTAIN_TRAIT_SPREAD
+
+    # A culture-authentic personal name, chosen as a pure function of the same stable
+    # identity that fixes the traits — RNG-free, so the movement phase stays
+    # byte-stable (issue #34). A distinct integer mix decorrelates name from traits.
+    # ``taken`` disambiguates against living namesakes in the same faction.
+    culture = lead.naming_culture
+    name_seed = (mix * 2_246_822_519 + lead.id) & 0xFFFFFFFF
+    sex = choose_sex(culture, name_seed)
+    taken = {c.name for c in characters(world, alive_only=True) if c.faction_id == lead.id}
+    name = generate_name(culture, sex, name_seed, taken)
+
     captain = add_character(
         world,
-        name=f"Captain of {lead.name}",
+        name=name,
         race=race,
         birth_year=world.current_year - (mature + 5),  # a seasoned adult of its race
-        sex="M",
+        sex=sex,
         role=Role.GENERAL,
-        location_id=lead.capital_location_id,
+        location_id=lead.capital_location_id,  # birthplace: the realm's seat
         faction_id=lead.id,
+        # A light authored origin (issue #34): the honorific marks a raised captain as
+        # an authored officer, not a spawn, wherever a character label renders. The
+        # year it was raised is its ``created_year`` and reads on the muster event.
+        title="Captain",
         traits={"martial": martial, "leadership": leadership},
     )
     return captain

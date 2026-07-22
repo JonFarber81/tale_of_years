@@ -458,11 +458,61 @@ def test_the_leader_ladder_falls_back_to_the_heir_then_a_generated_captain():
 
 
 def test_a_generated_captain_is_deterministic():
-    def cap_traits(seed):
+    def cap(seed):
         w = World.new_run(seed)
         f = add_faction(w, "F", FactionKind.REALM, capital_location_id=1)
-        return army_mod.generate_captain(w, f).traits
-    assert cap_traits("gcap") == cap_traits("gcap")  # same run → same captain
+        c = army_mod.generate_captain(w, f)
+        return c.traits, c.name, c.sex
+    assert cap("gcap") == cap("gcap")  # same run → same captain, name and all
+
+
+# -- named captains, culture-authentic (issue #34) -------------------------
+
+def test_a_generated_captain_carries_a_culture_authentic_name():
+    from arda_sim.factions import NamingCulture
+
+    w = World.new_run("names")
+    gondor = add_faction(w, "Gondor", FactionKind.REALM,
+                         culture=NamingCulture.GONDORIAN, capital_location_id=1)
+    captain = army_mod.generate_captain(w, gondor)
+    # The placeholder is retired: never literally "Captain of <Realm>".
+    assert not captain.name.startswith("Captain of")
+    # ...and the given name is drawn from the faction's own register, not another's.
+    from arda_sim.naming import load_name_pools
+    pool = load_name_pools()[NamingCulture.GONDORIAN.value]["given"]
+    assert captain.name.split()[0] in pool["male"] + pool["female"]
+
+
+def test_a_generated_captain_persists_after_its_host_disbands():
+    from arda_sim.armies import Army, end_host
+
+    w = World.new_run("veteran")
+    f = add_faction(w, "F", FactionKind.REALM, capital_location_id=1)
+    captain = army_mod.generate_captain(w, f)
+    host = Army(id=w.next_id(), kind="army", name="Host of F", created_year=w.current_year,
+                faction_id=f.id, leader_id=captain.id, size=100, contributor_ids=[f.id])
+    w.entities[host.id] = host
+    host.status = EntityStatus.DEAD.value
+    end_host(w, host)  # the host leaves play
+    # The captain remains in the world as a veteran, still a general.
+    assert captain.alive
+    assert captain.role == Role.GENERAL.value
+
+
+def test_captains_of_one_faction_get_distinct_names():
+    from arda_sim.characters import characters
+
+    w = World.new_run("distinct")
+    f = add_faction(w, "F", FactionKind.REALM, capital_location_id=1)
+    captains = []
+    for tick in range(0, 400, 40):
+        w.tick = tick
+        captains.append(army_mod.generate_captain(w, f))  # each persists in the faction
+    names = [c.name for c in captains]
+    # Each raised captain is a living same-faction character the next selection must
+    # disambiguate against, so a run of captains never share a full name.
+    assert len(set(names)) == len(names)
+    assert all(c.faction_id == f.id and c.alive for c in characters(w, alive_only=True))
 
 
 # -- per-faction march pace (issue #13) ------------------------------------

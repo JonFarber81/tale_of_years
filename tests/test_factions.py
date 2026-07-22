@@ -15,9 +15,11 @@ from arda_sim.factions import (
     Faction,
     FactionKind,
     Intent,
+    NamingCulture,
     People,
     Posture,
     add_faction,
+    default_culture_for_people,
     compute_prominence,
     deciding_factions,
     faction_decisions,
@@ -31,6 +33,42 @@ from arda_sim.pipeline import PIPELINE, run_ticks
 from arda_sim.scenarios import load_scenario
 from arda_sim.tiles import UNOWNED
 from arda_sim.world import World
+
+
+# -- naming culture (issue #34) ------------------------------------------
+
+def test_culture_defaults_from_people_when_unset():
+    w = World.new_run("culture")
+    dwarves = add_faction(w, "Folk", FactionKind.REALM, people=People.DWARVES)
+    assert dwarves.culture == ""  # nothing authored — stays unset on the record
+    assert dwarves.naming_culture is NamingCulture.DWARVISH  # derived on read
+    assert default_culture_for_people(People.MEN.value) is NamingCulture.MANNISH
+
+
+def test_distinct_men_realms_carry_authored_cultures():
+    # Gondor, Rohan and the Dúnedain are all `men` but must name differently.
+    w, _grid, _names = seed_world("culture")
+    by_name = {f.name: f for f in factions(w, alive_only=True)}
+    assert by_name["Gondor"].naming_culture is NamingCulture.GONDORIAN
+    assert by_name["Rohan"].naming_culture is NamingCulture.ROHIRRIC
+    assert by_name["Dúnedain of the North"].naming_culture is NamingCulture.DUNEDAIN
+    assert by_name["Isengard"].naming_culture is NamingCulture.MANNISH  # men, no register
+
+
+def test_culture_round_trips_and_old_snapshots_default():
+    w, _grid, _names = seed_world("culture")
+    reloaded = loads(dumps(w))
+    a = {f.name: f.naming_culture for f in factions(w, alive_only=True)}
+    b = {f.name: f.naming_culture for f in factions(reloaded, alive_only=True)}
+    assert a == b
+    # A snapshot predating the field (no `culture` key) still loads, deriving from
+    # `people` — shown on an unauthored faction, where the derived register is exact.
+    from arda_sim.entities import entity_from_dict
+    from dataclasses import asdict
+    raw = asdict(next(f for f in factions(w, alive_only=True) if f.name == "Durin's Folk"))
+    del raw["culture"]
+    revived = entity_from_dict(raw)
+    assert revived.culture == "" and revived.naming_culture is NamingCulture.DWARVISH
 
 
 # -- the record ----------------------------------------------------------

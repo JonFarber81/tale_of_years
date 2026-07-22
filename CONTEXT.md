@@ -16,6 +16,15 @@ not its army's composition, and independent of `kind` (Isengard in TA 2965 is
 *men*: Saruman's holding, no Uruk-hai yet). Authored at seed on every faction,
 providers included.
 
+**Naming culture** — the register a faction's *generated* characters (captains,
+later children) draw authentic names from (`orcish | dwarvish | elvish | dunedain |
+gondorian | rohirric | hobbit | mannish`). Finer-grained than **People** on
+purpose: Gondor, Rohan and the Dúnedain are all *men* but must name very
+differently. Derived from `people` when unset, and authored explicitly only where
+`people` is too coarse (the distinct Men realms). Name choice is a pure, RNG-free
+function of stable identity, so it never perturbs the reproducible run; pools live
+as data in `scenarios/names.json`.
+
 **Disposition** — an *asymmetric* per-ordered-pair scalar (−100..+100) recording
 how one faction regards another. Sparse: an absent entry means "no special
 feeling", read as the pair's baseline temper. Evolved by the diplomacy phase.

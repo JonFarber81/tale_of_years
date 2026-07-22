@@ -74,6 +74,47 @@ class People(str, Enum):
         return self.value
 
 
+class NamingCulture(str, Enum):
+    """The naming register a faction's generated characters draw names from.
+
+    Finer-grained than :class:`People` on purpose: Gondor, Rohan, and the Dúnedain
+    are all ``men`` but must name very differently (Númenórean-formal vs Old-English
+    vs archaic Sindarin). The eight registers cover every seeded folk; ``MANNISH`` is
+    the generic fallback for Men without a distinct register (Dale, Bree, Dunland,
+    Isengard-men). See issue #34. String-backed so it round-trips through canonical
+    JSON like the other faction enum fields.
+    """
+
+    ORCISH = "orcish"
+    DWARVISH = "dwarvish"
+    ELVISH = "elvish"
+    DUNEDAIN = "dunedain"
+    GONDORIAN = "gondorian"
+    ROHIRRIC = "rohirric"
+    HOBBIT = "hobbit"
+    MANNISH = "mannish"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+# The register a faction falls back to when it authors no explicit ``culture`` —
+# derived from its broad :class:`People`. Men default to the generic MANNISH; the
+# distinct Men realms (Gondor, Rohan, the Dúnedain) override this at seed.
+_DEFAULT_CULTURE: Dict[str, NamingCulture] = {
+    People.ELVES.value: NamingCulture.ELVISH,
+    People.DWARVES.value: NamingCulture.DWARVISH,
+    People.ORCS.value: NamingCulture.ORCISH,
+    People.HOBBITS.value: NamingCulture.HOBBIT,
+    People.MEN.value: NamingCulture.MANNISH,
+}
+
+
+def default_culture_for_people(people: str) -> NamingCulture:
+    """The naming register a folk uses when its faction authors no ``culture``."""
+    return _DEFAULT_CULTURE.get(people, NamingCulture.MANNISH)
+
+
 class SuccessionRule(str, Enum):
     """How a realm chooses the next holder of its ``leader_id`` when the seat
     falls vacant (build ticket 08). The rule is resolved by the succession phase,
@@ -161,6 +202,12 @@ class Faction(Entity):
     # other enum fields so it round-trips through canonical JSON. World-truth, not
     # army composition — read by the army-sprite renderer (map-visuals ticket 03).
     people: str = People.MEN.value
+    # The naming register generated characters (captains, later children) draw from
+    # (issue #34). Empty string = unset, so it derives from ``people`` via
+    # :meth:`naming_culture` — this keeps the field persistence-backward-compatible
+    # (snapshots predating it load with the derived default). Authored explicitly at
+    # seed only where ``people`` is too coarse (Gondor/Rohan/Dúnedain, all ``men``).
+    culture: str = ""
     succession_rule: str = SuccessionRule.AGNATIC_PRIMOGENITURE.value
     leader_id: Optional[int] = None
     capital_location_id: Optional[int] = None
@@ -221,6 +268,14 @@ class Faction(Entity):
     @property
     def kind_tag(self) -> FactionKind:
         return FactionKind(self.faction_kind)
+
+    @property
+    def naming_culture(self) -> NamingCulture:
+        """The naming register for this faction's generated characters: its authored
+        ``culture`` if set, else the default for its :class:`People` (issue #34)."""
+        if self.culture:
+            return NamingCulture(self.culture)
+        return default_culture_for_people(self.people)
 
     @property
     def is_provider(self) -> bool:
@@ -325,6 +380,7 @@ def add_faction(
     kind: FactionKind,
     *,
     people: People = People.MEN,
+    culture: Optional[NamingCulture] = None,
     succession_rule: SuccessionRule = SuccessionRule.AGNATIC_PRIMOGENITURE,
     leader_id: Optional[int] = None,
     capital_location_id: Optional[int] = None,
@@ -357,6 +413,10 @@ def add_faction(
         status=status,
         faction_kind=kind.value if isinstance(kind, FactionKind) else kind,
         people=people.value if isinstance(people, People) else people,
+        culture=(
+            culture.value if isinstance(culture, NamingCulture)
+            else (culture or "")
+        ),
         succession_rule=(
             succession_rule.value
             if isinstance(succession_rule, SuccessionRule)
@@ -628,6 +688,9 @@ class _FactionSeed:
     name: str
     kind: FactionKind
     people: People = People.MEN
+    # Naming register override (issue #34); None = derive from ``people`` at runtime.
+    # Authored only where ``people`` is too coarse — the distinct Men realms.
+    culture: Optional[NamingCulture] = None
     succession_rule: SuccessionRule = SuccessionRule.AGNATIC_PRIMOGENITURE
     leader: Optional[str] = None
     capital: Optional[str] = None
@@ -655,6 +718,7 @@ class _FactionSeed:
 _ROSTER: tuple = (
     _FactionSeed(
         "Gondor", FactionKind.REALM, people=People.MEN,
+        culture=NamingCulture.GONDORIAN,
         succession_rule=SuccessionRule.STEWARDSHIP,
         leader="Ecthelion II", capital="Minas Tirith",
         aggression=45, posture=Posture.DEFENSIVE,
@@ -666,6 +730,7 @@ _ROSTER: tuple = (
     ),
     _FactionSeed(
         "Rohan", FactionKind.REALM, people=People.MEN,
+        culture=NamingCulture.ROHIRRIC,
         leader="Thengel", capital="Edoras",
         aggression=50, posture=Posture.DEFENSIVE,
         regions=("Rohan", "Westemnet", "Eastemnet", "The Wold"),
@@ -676,6 +741,7 @@ _ROSTER: tuple = (
     ),
     _FactionSeed(
         "Dúnedain of the North", FactionKind.REALM, people=People.MEN,
+        culture=NamingCulture.DUNEDAIN,
         leader="Aragorn",
         aggression=35, posture=Posture.NEUTRAL,
         claims=("North Downs", "Arthedain", "Cardolan", "Evendim"),
@@ -845,6 +911,7 @@ def seed_factions(
             name=s.name,
             kind=s.kind,
             people=s.people,
+            culture=s.culture,
             succession_rule=s.succession_rule,
             leader_id=leader.id if leader else None,
             capital_location_id=capital_id,

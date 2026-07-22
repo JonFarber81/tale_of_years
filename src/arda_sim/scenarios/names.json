@@ -1,0 +1,91 @@
+{
+  "_comment": "Per-culture name pools for generated characters (issue #34). Keyed by NamingCulture. Each entry: given.male / given.female sub-lists (female empty where the register fields no captains), optional surnames (Hobbits), and a construction block { patronymic, epithets } used only to widen a colliding name before an ordinal is appended. Data, not code — extend the lists here without touching Python.",
+  "orcish": {
+    "given": {
+      "male": ["Grishnákh", "Gorbag", "Shagrat", "Lugdush", "Muzgash", "Ufthak", "Snaga", "Mauhúr", "Radbug", "Lagduf", "Uglúk", "Golfimbul", "Bolg", "Yagûl", "Ghâsh", "Mogdûr", "Ghorza", "Uzgûl", "Narzug", "Durbûk", "Grushak", "Mordûk", "Ashûk", "Grimbûl", "Bûrzash", "Skath", "Krant", "Nazug", "Lurtz", "Grsnik", "Rukhat", "Vagrûk", "Muzbûr", "Grazuk"],
+      "female": []
+    },
+    "surnames": [],
+    "construction": {
+      "patronymic": false,
+      "epithets": ["the Cleaver", "Foe-biter", "Blacktooth", "the Torn", "Ratgnaw", "the Maggot", "Snaga-driver", "the Flayer"]
+    }
+  },
+  "dwarvish": {
+    "given": {
+      "male": ["Náin", "Dáin", "Borin", "Frerin", "Gróin", "Farin", "Óin", "Regin", "Thráin", "Balin", "Dwalin", "Glóin", "Fundin", "Bifur", "Bofur", "Bombur", "Dori", "Nori", "Ori", "Náli", "Grór", "Nár", "Gamil", "Flói", "Frár", "Lóni", "Telchar", "Durin", "Borin", "Óri", "Thrór", "Fráin", "Vigdis", "Krof"],
+      "female": []
+    },
+    "surnames": [],
+    "construction": {
+      "patronymic": true,
+      "epithets": ["Ironfist", "Stonehelm", "the Broadbeam", "Firebeard", "the Steadfast"]
+    }
+  },
+  "elvish": {
+    "given": {
+      "male": ["Haldir", "Rúmil", "Orophin", "Galdor", "Mablung", "Beleg", "Celebrin", "Gildor", "Amdír", "Amroth", "Oropher", "Edrahil", "Guilin", "Gwindor", "Daeron", "Aegnor", "Angrod", "Ecthelion", "Erestor", "Lindir", "Maethor", "Thalion", "Randir", "Faelon", "Enel", "Saeros", "Faeldir", "Meneldir", "Aerandir", "Belegorn", "Nimdir", "Thandir"],
+      "female": ["Nimloth", "Nellas", "Aredhel", "Elemmírë", "Meril", "Celebrían", "Anairë", "Eärwen", "Galadhel", "Nimrodel", "Elwing", "Míriel", "Rían", "Silmariën", "Idril", "Aerin"]
+    },
+    "surnames": [],
+    "construction": {
+      "patronymic": false,
+      "epithets": ["the Fair", "Greenleaf", "the Swift", "the Bowman", "Silverbrow", "the Grey", "Starkindler"]
+    }
+  },
+  "dunedain": {
+    "given": {
+      "male": ["Halbarad", "Arador", "Argonui", "Dírhael", "Belecthor", "Ohtar", "Arathorn", "Arassuil", "Arahael", "Aranarth", "Malvegil", "Mallor", "Celepharn", "Barahir", "Amlaith", "Beregar", "Tarcil", "Valandil", "Dírhaborn", "Mardil", "Eärnil", "Ondoher", "Elhael", "Berendor", "Hallor", "Targon", "Direth", "Aravorn"],
+      "female": ["Gilraen", "Ivorwen", "Morwen", "Nienor", "Emeldir", "Rían", "Eilinel", "Andreth", "Almiel", "Berúth"]
+    },
+    "surnames": [],
+    "construction": {
+      "patronymic": false,
+      "epithets": ["the Ranger", "the Grey", "Longshanks", "the Dúnadan", "the Watchful", "of the North"]
+    }
+  },
+  "gondorian": {
+    "given": {
+      "male": ["Beregond", "Forlong", "Duilin", "Hirluin", "Damrod", "Húrin", "Targon", "Beren", "Hallas", "Egalmoth", "Orodreth", "Vorondil", "Pelendur", "Ingold", "Anborn", "Mablung", "Derufin", "Golasgil", "Angbor", "Duinhir", "Beregar", "Cirion", "Túrin", "Belecthor", "Faramir", "Boromir", "Denethor", "Egalmor", "Baranor", "Iorlas", "Targil", "Hurthal"],
+      "female": ["Finduilas", "Ioreth", "Lothíriel", "Morwen", "Míriel", "Almarian", "Rothinzil", "Nesta"]
+    },
+    "surnames": [],
+    "construction": {
+      "patronymic": false,
+      "epithets": ["of Minas Tirith", "the Tall", "the Steadfast", "Tower-warden", "of Ithilien", "the Bold"]
+    }
+  },
+  "rohirric": {
+    "given": {
+      "male": ["Háma", "Gamling", "Erkenbrand", "Grimbold", "Déorwine", "Elfhelm", "Fastred", "Gárulf", "Herefara", "Herubrand", "Horn", "Dúnhere", "Ceorl", "Baldor", "Brego", "Aldor", "Fréawine", "Goldwine", "Déor", "Gram", "Fréaláf", "Léofric", "Widfara", "Guthláf", "Éothain", "Harding", "Wulfgar", "Beorngar", "Ecgláf", "Hereward", "Aldhelm", "Grimhelm"],
+      "female": ["Éowyn", "Théodwyn", "Elfhild", "Morwen", "Gléowyn", "Æscwyn", "Wynflæd", "Leofwyn", "Saeryn", "Hild"]
+    },
+    "surnames": [],
+    "construction": {
+      "patronymic": true,
+      "epithets": []
+    }
+  },
+  "hobbit": {
+    "given": {
+      "male": ["Bandobras", "Folco", "Odo", "Fredegar", "Bungo", "Drogo", "Dodinas", "Dudo", "Isengar", "Isumbras", "Ferumbras", "Fortinbras", "Adalgrim", "Paladin", "Saradoc", "Rorimac", "Gorbadoc", "Marmadas", "Milo", "Otho", "Griffo", "Hugo", "Wilcome", "Hamfast", "Holman", "Andwise", "Hob", "Sancho", "Togo", "Cottar"],
+      "female": []
+    },
+    "surnames": ["Took", "Brandybuck", "Bolger", "Boffin", "Chubb", "Grubb", "Proudfoot", "Bracegirdle", "Burrows", "Goodbody", "Hornblower", "Sandheaver", "Underhill", "Brownlock", "Roper", "Twofoot", "Banks", "Brockhouse", "Goldworthy", "Puddifoot"],
+    "construction": {
+      "patronymic": false,
+      "epithets": ["the Fat", "of Bywater", "the Elder"]
+    }
+  },
+  "mannish": {
+    "given": {
+      "male": ["Bard", "Brand", "Bain", "Beorn", "Grimbeorn", "Wulf", "Barding", "Girion", "Fram", "Frumgar", "Forthwini", "Marhwini", "Vidugavia", "Bergil", "Borgil", "Harding", "Erland", "Ingold", "Halbeorn", "Sigeric", "Wada", "Osric", "Grimald", "Baldwine", "Godwin", "Aldwin", "Rennet", "Everard", "Hathol", "Ceorl", "Sunric", "Wulfgar"],
+      "female": []
+    },
+    "surnames": [],
+    "construction": {
+      "patronymic": false,
+      "epithets": ["the Bowman", "of Dale", "Longbeard", "the Tall", "the Younger", "River-warden"]
+    }
+  }
+}

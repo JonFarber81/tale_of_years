@@ -41,3 +41,11 @@ def load_scenario_data(name: str) -> Dict:
 def load_scenario(name: str) -> TileGrid:
     """Load a bundled scenario into a :class:`~arda_sim.tiles.TileGrid`."""
     return load_grid(load_scenario_data(name))
+
+
+def load_name_pools_data() -> Dict:
+    """The per-culture name pools backing the naming system (issue #34).
+
+    A bundled data asset like the scenarios beside it — authored content, not run
+    state (see :mod:`arda_sim.naming`, which loads and caches this once)."""
+    return load_scenario_data("names")

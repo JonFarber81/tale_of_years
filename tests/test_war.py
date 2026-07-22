@@ -160,6 +160,31 @@ def test_the_loser_bleeds_harder_than_the_winner():
     assert battle.payload["loser_casualties"] > battle.payload["winner_casualties"]
 
 
+def test_a_battle_names_its_generals_so_a_captains_deeds_read_back():
+    # A battle event lists both commanders as subjects — this is what lets a
+    # generated captain's field deeds surface via character_timeline (issue #34).
+    from arda_sim.characters import character_timeline
+
+    w = World.new_run("deeds")
+    w.grid = _grid(3, 1)
+    a = add_faction(w, "A", FactionKind.REALM)
+    b = add_faction(w, "B", FactionKind.REALM)
+    _at_war(a, b)
+    cap_a = add_character(w, "Beregond", Race.MAN, 2900, role=Role.GENERAL, faction_id=a.id,
+                          traits={"martial": 99})  # tough, so he survives to read back
+    cap_b = add_character(w, "Grishnákh", Race.ORC, 2900, role=Role.GENERAL, faction_id=b.id,
+                          traits={"martial": 99})
+    _army(w, a.id, 1, 0, size=5000, leader_id=cap_a.id)
+    _army(w, b.id, 1, 0, size=800, leader_id=cap_b.id)
+    events = war(w, w.rng)
+    for e in events:
+        w.append_event(e)
+    battle = next(e for e in events if e.type == BATTLE_EVENT)
+    assert cap_a.id in battle.subject_ids and cap_b.id in battle.subject_ids
+    # ...and it therefore lands on the commander's own timeline.
+    assert any(e.type == BATTLE_EVENT for e in character_timeline(w, cap_a.id))
+
+
 def test_a_shattered_host_is_destroyed_not_merely_beaten():
     w = World.new_run("wipe")
     w.grid = _grid(3, 1)
