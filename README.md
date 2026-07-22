@@ -33,7 +33,7 @@ Gondor might fall early, Arnor might be restored a century too soon. Every run i
 reproducible from a human-shareable **seed string**, so a history you love can be
 replayed or handed to someone else.
 
-<img width="2784" height="1888" alt="image" src="https://github.com/user-attachments/assets/32d6e9f2-4c79-496f-bde8-83ab84281c1d" />
+<img width="1512" height="949" alt="image" src="https://github.com/user-attachments/assets/35100900-05c6-4195-a681-8daabf52a856" />
 
 
 > This is a personal, non-commercial fan project. Middle-earth, its places, and
