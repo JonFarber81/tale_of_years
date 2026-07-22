@@ -20,10 +20,17 @@ from typing import Dict, List, NamedTuple, Optional, Tuple
 
 from .. import START_YEAR
 from ..armies import Army
-from ..characters import Character, ancestors, children_of
+from ..characters import (
+    TRAIT_KEYS,
+    Character,
+    Race,
+    Role,
+    ancestors,
+    children_of,
+)
 from ..diplomacy import ALLIANCE, NEUTRALITY, VASSALAGE, stance
 from ..economy import faction_population
-from ..entities import Event
+from ..entities import Event, EntityStatus
 from ..factions import FACTION_INTENT_EVENT, Faction, SuccessionRule
 from ..ring import RING_TRANSFERRED_EVENT, Ring, RingTransfer, the_ring
 from ..snapshot import Snapshot
@@ -62,6 +69,15 @@ _RING_ACCENT = "#e9c46a"
 # dynasty purple the presumptive heir — read against the tree's linked nodes.
 _RULER_BADGE = "#c99a3b"
 _HEIR_BADGE = _FEALTY_COLOR
+
+# The reader-facing life status word for a character dossier (#18): the entity
+# status maps to plain speech — "active" is a person still in play, i.e. alive.
+_STATUS_WORDS = {
+    EntityStatus.ACTIVE.value: "alive",
+    EntityStatus.DEAD.value: "dead",
+    EntityStatus.DEPARTED.value: "departed",
+    EntityStatus.DESTROYED.value: "destroyed",
+}
 
 
 class RingTrendSample(NamedTuple):
@@ -163,6 +179,7 @@ class CodexPages:
             "tile": self._tile_page,
             "site": self._site_page,
             "faction": self._faction_page,
+            "character": self._character_page,
             "diplomacy": self._diplomacy_page,
             "dynasty": self._dynasty_page,
             "host": self._host_page,
@@ -201,6 +218,11 @@ class CodexPages:
         faction = self._faction(faction_id) if faction_id is not None else None
         return self.describe_faction(faction) if faction is not None else None
 
+    def _character_page(self, ident: str) -> Optional[str]:
+        char_id = self._int_ident(ident)
+        char = self._character(char_id) if char_id is not None else None
+        return self.describe_character(char) if char is not None else None
+
     def _diplomacy_page(self, ident: str) -> Optional[str]:
         """A Diplomacy tab (ADR-0014, #20): ``codex://diplomacy/faction:<id>``.
 
@@ -218,21 +240,30 @@ class CodexPages:
         return self.describe_diplomacy_page(faction)
 
     def _dynasty_page(self, ident: str) -> Optional[str]:
-        """A Dynasty tab (ADR-0014): ``codex://dynasty/faction:<id>``.
+        """A Dynasty tab (ADR-0014): ``codex://dynasty/faction:<id>`` or
+        ``codex://dynasty/character:<id>``.
 
         The ident is **typed** — a ``<type>:<id>`` pair naming what roots the
-        tree. Only ``faction`` is served here (its current leader roots the
-        ruling bloodline); the ``character`` variant lands with #18. A malformed
-        or unknown-type ident is a dead link (``None``), never a raise.
+        tree. ``faction`` roots at the realm's current leader (its ruling
+        bloodline); ``character`` (#18) roots at that person, so the same
+        renderer serves both from a single typed ident. A malformed or
+        unknown-type ident is a dead link (``None``), never a raise.
         """
         kind, sep, raw = ident.partition(":")
-        if not sep or kind != "faction":
+        if not sep or self._latest_snapshot is None:
             return None
-        faction_id = self._int_ident(raw)
-        faction = self._faction(faction_id) if faction_id is not None else None
-        if faction is None or self._latest_snapshot is None:
+        subject_id = self._int_ident(raw)
+        if subject_id is None:
             return None
-        return self.describe_dynasty(faction)
+        if kind == "faction":
+            faction = self._faction(subject_id)
+            return self.describe_dynasty(faction) if faction is not None else None
+        if kind == "character":
+            char = self._character(subject_id)
+            return (
+                self.describe_character_dynasty(char) if char is not None else None
+            )
+        return None
 
     def _host_page(self, ident: str) -> Optional[str]:
         army_id = self._int_ident(ident)
@@ -593,11 +624,13 @@ class CodexPages:
         )
 
     def _search_candidates(self):
-        """Every searchable (name, detail, address), factions → hosts → sites.
+        """Every searchable (name, detail, address): factions → hosts →
+        characters → sites.
 
-        Shell scope (#36): entities with proper names in the displayed
-        snapshot plus the grid's sites — enough to prove the plumbing.
-        Characters join with #18's finder.
+        Snapshot-scoped like the rest of the Codex: the named entities present
+        in the displayed snapshot plus the grid's sites. Characters (#18) join
+        here — only those present in the displayed year, so scrubbing the
+        timeline changes who is findable.
         """
         candidates = []
         if self._latest_snapshot is not None:
@@ -619,11 +652,43 @@ class CodexPages:
                         CodexAddress("host", str(army.id)),
                     )
                 )
+            for char in self._characters_in(self._latest_snapshot):
+                candidates.append(
+                    (
+                        char.name,
+                        self._character_detail(char),
+                        CodexAddress("character", str(char.id)),
+                    )
+                )
         for site in self._grid.sites:
             candidates.append(
                 (site.name, site.kind, CodexAddress("site", str(site.id)))
             )
         return candidates
+
+    @staticmethod
+    def _characters_in(snapshot: Snapshot) -> List[Character]:
+        """Every character in a snapshot, in id order (dead/departed included —
+        their records persist and stay searchable as historical figures)."""
+        return [
+            e
+            for _id, e in sorted(snapshot.entities.items())
+            if isinstance(e, Character)
+        ]
+
+    def _character_detail(self, char: Character) -> str:
+        """A character's search detail line: race, then role/title, then a
+        non-alive status — e.g. "Dúnedain · Steward of Gondor" or "Elf · departed".
+        """
+        bits = [char.race.title()]
+        if char.title:
+            bits.append(char.title)
+        elif char.role and char.role != Role.NONE.value:
+            bits.append(char.role.title())
+        status = self._character_status_word(char)
+        if status != "alive":
+            bits.append(status)
+        return " · ".join(bits)
 
     # -- events ----------------------------------------------------------
 
@@ -726,6 +791,18 @@ class CodexPages:
             return None
         entity = self._latest_snapshot.entity(faction_id)
         return entity if isinstance(entity, Faction) else None
+
+    def _character(self, char_id: int) -> Optional[Character]:
+        """The character record as of the displayed year (from the snapshot).
+
+        Snapshot-scoped like :meth:`_faction`: a character born after the
+        displayed year is simply absent (``None``), so scrubbing the timeline
+        changes who resolves. Dead and departed people persist in the snapshot,
+        so their dossiers and dynasty links still read back."""
+        if self._latest_snapshot is None:
+            return None
+        entity = self._latest_snapshot.entity(char_id)
+        return entity if isinstance(entity, Character) else None
 
     def _armies_in(self, snapshot: Snapshot) -> List[Army]:
         """The living hosts in a snapshot, in id order (for the map layer)."""
@@ -1235,6 +1312,174 @@ class CodexPages:
             f'&nbsp;<span style="color: {color}; font-size: small">'
             f"<b>[{esc(text)}]</b></span>"
         )
+
+    # -- characters ------------------------------------------------------
+
+    @staticmethod
+    def _character_status_word(char: Character) -> str:
+        """A character's life status in plain speech (alive / dead / departed)."""
+        return _STATUS_WORDS.get(char.status, char.status)
+
+    def _character_tabs(self, char: Character, active: str) -> str:
+        """The character dossier's internal tab strip (ADR-0014, #18): Overview
+        and Dynasty, each an ordinary ``codex://`` page so history/back reach
+        both — mirroring the faction strip. The Dynasty entry roots the shared
+        ``dynasty`` renderer at this character (``character:<id>``)."""
+        return tab_strip(
+            [
+                ("Overview", f"codex://character/{char.id}", active == "Overview"),
+                (
+                    "Dynasty",
+                    f"codex://dynasty/character:{char.id}",
+                    active == "Dynasty",
+                ),
+            ]
+        )
+
+    def describe_character(self, char: Character) -> str:
+        """A character dossier (#18): banner, stats, traits, allegiance, kin.
+
+        Rendered through the shared dossier anatomy like every other page. Shows
+        race, role/title, life status, age at the displayed year, prominence,
+        and (**Elves only**) weariness; then the person's faction and current
+        location as linked pages, the trait vector, and kin — spouse, parents,
+        and children as linked character pages. Reads only the displayed
+        snapshot, so a scrub reflects the person's state that year.
+        """
+        accent = (
+            self._owner_accent(char.faction_id)
+            if char.faction_id is not None
+            else NEUTRAL_ACCENT
+        )
+        parts = [
+            banner(f"Character · {char.race.title()}", char.name, accent),
+            self._character_tabs(char, active="Overview"),
+        ]
+        stats = [
+            ("Title", char.title),  # None drops the row
+            (
+                "Role",
+                char.role.title()
+                if char.role and char.role != Role.NONE.value
+                else None,
+            ),
+            ("Status", self._character_status_word(char)),
+            ("Age", char.age(self._display_year)),
+            ("Prominence", char.prominence),
+        ]
+        if char.race == Race.ELF.value:
+            stats.append(("Weariness", char.weariness))
+        parts.append(stat_grid(stats))
+
+        parts.append(section("Allegiance"))
+        parts.append(para("<br>".join(self._character_allegiance(char))))
+
+        parts.append(section("Traits"))
+        parts.append(
+            stat_grid(
+                [(key.title(), char.traits.get(key, 0)) for key in TRAIT_KEYS]
+            )
+        )
+
+        kin = self._character_kin(char)
+        parts.append(section("Kin"))
+        parts.append(
+            para("<br>".join(kin))
+            if kin
+            else dim_para("No kin are recorded.")
+        )
+        return "".join(parts)
+
+    @staticmethod
+    def _labeled(label: str, value_html: str) -> str:
+        """A dossier line: a dimmed ``Label:`` lead-in, then composed value HTML."""
+        return f'<span style="color: {DIM}">{esc(label)}: </span>{value_html}'
+
+    def _character_allegiance(self, char: Character) -> List[str]:
+        """The faction and current location lines, each a linked page or a dash."""
+        faction = (
+            self._faction(char.faction_id)
+            if char.faction_id is not None
+            else None
+        )
+        faction_html = (
+            self._codex_link("faction", faction.id, faction.name)
+            if faction is not None
+            else "—"
+        )
+        site = (
+            self._grid.site_by_id(char.location_id)
+            if char.location_id is not None
+            else None
+        )
+        location_html = (
+            self._codex_link("site", site.id, site.name)
+            if site is not None
+            else "—"
+        )
+        return [
+            self._labeled("Faction", faction_html),
+            self._labeled("Location", location_html),
+        ]
+
+    def _character_kin(self, char: Character) -> List[str]:
+        """Spouse, parents, and children as linked lines, each omitted when empty.
+
+        Reuses the kinship queries (``children_of``) and the snapshot for spouse
+        and parents rather than re-walking id fields — every kin a
+        ``codex://character/<id>`` link, dead kin marked ``†`` (see :meth:`_kin_link`).
+        """
+        snapshot = self._latest_snapshot
+        lines: List[str] = []
+        if char.spouse_id is not None and snapshot is not None:
+            spouse = snapshot.entity(char.spouse_id)
+            if isinstance(spouse, Character):
+                lines.append(self._labeled("Spouse", self._kin_link(spouse)))
+        parents = [
+            p
+            for pid in char.parent_ids
+            if snapshot is not None
+            and isinstance((p := snapshot.entity(pid)), Character)
+        ]
+        if parents:
+            joined = ", ".join(self._kin_link(p) for p in parents)
+            lines.append(self._labeled("Parents", joined))
+        children = (
+            children_of(snapshot, char.id) if snapshot is not None else []
+        )
+        if children:
+            joined = ", ".join(self._kin_link(c) for c in children)
+            lines.append(self._labeled("Children", joined))
+        return lines
+
+    def describe_character_dynasty(self, char: Character) -> str:
+        """The Dynasty tab rooted at a character (#18): the family line as an
+        indented, linked tree — forebears, self, then descendants.
+
+        The ``character`` variant of the shared ``dynasty`` renderer (ADR-0014):
+        it reuses the same kinship walk and node rendering as the faction
+        variant, only rooting the tree at the person rather than a realm's
+        leader. A ruling person is badged; there is no presumptive-heir line (a
+        seat's concern, not a person's).
+        """
+        snapshot = self._latest_snapshot
+        accent = (
+            self._owner_accent(char.faction_id)
+            if char.faction_id is not None
+            else NEUTRAL_ACCENT
+        )
+        parts = [
+            banner("Dynasty", char.name, accent),
+            self._character_tabs(char, active="Dynasty"),
+        ]
+        ruler_id = char.id if char.role == Role.RULER.value else None
+        lines: List[str] = []
+        for forebear in reversed(ancestors(snapshot, char.id)):
+            lines.append(self._dynasty_line(forebear, 0, ruler_id, None))
+        lines.append(self._dynasty_line(char, 0, ruler_id, None))
+        self._append_dynasty_descendants(char.id, 1, lines, ruler_id, None)
+        parts.append(para("<br>".join(lines)))
+        return "".join(parts)
 
     # -- the One Ring ----------------------------------------------------
 

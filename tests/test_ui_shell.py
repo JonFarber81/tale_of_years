@@ -579,9 +579,9 @@ def test_dynasty_page_renders_a_linked_badged_tree(qapp):
         assert "[Ruler]" in text and "[Heir]" in text  # both badged
         ecthelion = window._latest_snapshot.entity(gondor.leader_id)
         assert f"codex://character/{ecthelion.id}" in html  # kin are links
-        # Following a kin link is a dead link until #18 registers `character`.
+        # Following a kin link now opens the character dossier (#18 made it live).
         window._codex.open_url(f"codex://character/{ecthelion.id}")
-        assert "No such page" in window._codex.browser.toPlainText()
+        assert "CHARACTER" in window._codex.browser.toPlainText()
         window._codex.go_back()  # back to the dynasty tree
         window._codex.go_back()  # back to the Overview tab
         assert "FACTION" in window._codex.browser.toPlainText()
@@ -595,7 +595,17 @@ def test_malformed_dynasty_ident_is_a_dead_link(qapp):
     window = build_window("fellowship")
     try:
         _seeded_faction(window, "Gondor")  # a snapshot exists
-        for ident in ("faction:banana", "character:1", "999999", "faction:999999"):
+        # Malformed idents, an untyped bare id, and unknown ids/types all die —
+        # both the faction and (post-#18) character variants (a valid *type*, so
+        # only an unresolvable id is dead here).
+        for ident in (
+            "faction:banana",
+            "character:banana",
+            "character:999999",
+            "wraith:1",
+            "999999",
+            "faction:999999",
+        ):
             window._codex.navigate(CodexAddress("dynasty", ident))
             assert "No such page" in window._codex.browser.toPlainText()
     finally:
@@ -731,6 +741,39 @@ def test_opening_a_host_page_centres_the_map_on_its_marker(qapp):
         window._codex.open_url("codex://index/armies")
         window._codex.open_url("codex://host/999999")
         assert focused == [(5, 6)]
+    finally:
+        window.close()
+
+
+def test_opening_a_character_page_centres_the_map_on_their_location(qapp):
+    # Activating a character page centres the map on the person's current
+    # location (#18): resolve location_id → site → tile. A character with no
+    # location moves nothing.
+    from arda_sim.characters import Character
+
+    window = build_window("fellowship")  # seeded roster: characters have homes
+    focused = []
+    window._map.focus_tile = lambda col, row: focused.append((col, row))
+    try:
+        snap, _ = window._playback.advance()
+        window._on_tick_advanced(snap, [])
+        ecthelion = next(
+            e
+            for e in snap.entities.values()
+            if isinstance(e, Character) and e.name == "Ecthelion II"
+        )
+        site = window._grid.site_by_id(ecthelion.location_id)
+        window._codex.open_url(f"codex://character/{ecthelion.id}")
+        assert focused == [(site.col, site.row)]
+        # Gandalf carries no home site — his page leaves the map put.
+        gandalf = next(
+            e
+            for e in snap.entities.values()
+            if isinstance(e, Character) and e.name == "Gandalf"
+        )
+        assert gandalf.location_id is None
+        window._codex.open_url(f"codex://character/{gandalf.id}")
+        assert focused == [(site.col, site.row)]
     finally:
         window.close()
 
