@@ -42,6 +42,7 @@ def test_pipeline_phases_run_in_fixed_order():
         "diplomacy",
         "movement",
         "hunt",
+        "character_journeys",
         "war",
         "construction_economy",
         "ring",
