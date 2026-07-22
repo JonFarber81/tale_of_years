@@ -18,10 +18,12 @@ Three things live here:
 * **The nine Nazgûl** — named wraith Characters seeded to the dark realm
   (Witch-king and five at Minas Morgul, Khamûl and two at Dol Guldur), immortal
   while Sauron and the Ring endure, unmade with the Ring's destruction. They hunt
-  through the normal phase flow: a phase-2 ``hunt_ring`` intent when strength and
-  ``pull`` are both high, movement here as a :class:`Hunt` record with a search
-  budget (phase 4½, after armies march), and a capture attempt resolved by the
-  Ring phase — this module reads the Ring's ``pull`` and location but **never
+  through the normal phase flow: a phase-2 ``hunt_ring`` intent unlocked on
+  ``sauron_strength`` alone (ADR-0016 — a strong Shadow rides even toward a Ring
+  gone quiet; ``pull`` only sharpens the urgency), movement here as a
+  :class:`Hunt` record with a search budget (phase 4½, after armies march) that
+  bounds how long it rides before turning back, and a capture attempt resolved by
+  the Ring phase — this module reads the Ring's ``pull`` and location but **never
   mutates the Ring record** (single-writer discipline, ADR-0008). Between hunts
   the wraiths are elite generals the ordinary muster ladder drafts.
 
@@ -110,7 +112,6 @@ _ROLE_SEEK_BP = 350  # of 1000, scaled by canonicity
 # The hunt.
 _HUNT_BUDGET_TICKS = 60  # five years in the saddle before the Nine turn back
 _HUNT_PACE = 260  # miles/year — the Nine ride faster than any host marches
-_SCENT_MIN = 10  # below this pull the quarry has gone quiet and the hunt ends
 
 _ANCIENT = -3000  # birth year for beings older than reliable dating
 
@@ -401,8 +402,6 @@ def _advance_hunt(
         return [_end_hunt(world, hunt, "quarry_gone")]
     if realm is not None and _ring_in_dark_hands(world, ring, realm):
         return [_end_hunt(world, hunt, "quarry_taken")]
-    if ring.pull < _SCENT_MIN:
-        return [_end_hunt(world, hunt, "lost_scent")]
 
     goal = [ring.col, ring.row]
     if hunt.goal != goal:

@@ -830,8 +830,6 @@ def _render_nazgul_hunt(ctx: _RenderContext, event: Event) -> str:
     reason = payload.get("reason")
     if reason == "quarry_taken":
         return "The hunt of the Nine was ended, for the Ring had come into the Shadow's keeping."
-    if reason == "lost_scent":
-        return "The Ringwraiths lost the scent, and the hunt turned back empty-handed."
     return "The Nine gave over their hunt and turned again to their master's wars."
 
 
