@@ -33,6 +33,9 @@ Gondor might fall early, Arnor might be restored a century too soon. Every run i
 reproducible from a human-shareable **seed string**, so a history you love can be
 replayed or handed to someone else.
 
+<img width="2784" height="1888" alt="image" src="https://github.com/user-attachments/assets/32d6e9f2-4c79-496f-bde8-83ab84281c1d" />
+
+
 > This is a personal, non-commercial fan project. Middle-earth, its places, and
 > its peoples are the creation of J.R.R. Tolkien and belong to the Tolkien Estate.
 
