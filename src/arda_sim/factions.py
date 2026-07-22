@@ -419,6 +419,16 @@ _JITTER = 15  # exclusive upper bound of the per-intent RNG add
 _CANON_WEIGHT = 40  # how hard the canonicity scalar leans on a faction's canon move
 _WITHDRAW_PENALTY = 60  # subtracted from attack/muster for a withdrawing faction
 
+# The rousing of the withdrawn. A faction that has withdrawn from the world's
+# quarrels does not stay hidden once the Shadow looms: when the greatest
+# ``sauron_strength`` abroad (see :func:`_perceived_shadow`) crosses this, dread of
+# the dark realm lifts its withdrawal outright and drives it to take the field —
+# the late-Third-Age turn when the Elf realms marched at last. Pitched at the same
+# point diplomacy first *perceives* Mordor (its ``_VISIBILITY_THRESHOLD``), so the
+# elves stir in the same War-of-the-Ring window and never in 2965's long peace.
+ROUSE_STRENGTH_MIN = 60  # perceived sauron_strength that ends a withdrawal
+_ROUSE_URGENCY = 60  # flat attack weight a roused faction gains (grows as the Shadow does)
+
 # The hunt (issue #5): gates on the phase-7 scalars computed *last* tick — the
 # spec's deliberate one-tick lag. Blocked outright for every faction with no
 # ``sauron_strength``, and for the dark realm itself until both thresholds hold.
@@ -445,20 +455,26 @@ def _friendliness(faction: Faction) -> int:
 
 
 def _score_intents(
-    faction: Faction, canonicity: float, hunt_drive: int = _HUNT_BLOCKED
+    faction: Faction,
+    canonicity: float,
+    hunt_drive: int = _HUNT_BLOCKED,
+    shadow: int = 0,
 ) -> Dict[Intent, int]:
     """Weighted-utility score per menu intent, before RNG jitter.
 
     Reads only the faction's own cached scalars and disposition map — never the
     grid — so it is safe inside the ``system(world, rng)`` signature.
     ``hunt_drive`` is computed by the caller (it needs the Ring's ``pull``);
-    blocked by default so a bare call scores the classic menu.
+    blocked by default so a bare call scores the classic menu. ``shadow`` is the
+    greatest ``sauron_strength`` abroad this tick (0 by default), which rouses a
+    withdrawn faction once it crosses :data:`ROUSE_STRENGTH_MIN`.
     """
     _target, hostility = _hostility(faction)
     friendliness = _friendliness(faction)
     aggression = faction.aggression
     strength = faction.military_strength
     withdrawing = faction.posture == Posture.WITHDRAWING.value
+    roused = withdrawing and shadow >= ROUSE_STRENGTH_MIN
 
     scores = {
         Intent.MUSTER: aggression + strength // 4,
@@ -468,7 +484,12 @@ def _score_intents(
         Intent.BUILD: (100 - aggression) // 2 + 20,
         Intent.HUNT: hunt_drive,
     }
-    if withdrawing:
+    if roused:
+        # The Shadow has risen past bearing: the withdrawal lifts and dread of the
+        # dark realm drives an assault on the enemy this faction most hates — and
+        # the dread grows as the Shadow does, so a stronger Mordor rouses harder.
+        scores[Intent.ATTACK] += _ROUSE_URGENCY + (shadow - ROUSE_STRENGTH_MIN)
+    elif withdrawing:
         scores[Intent.ATTACK] -= _WITHDRAW_PENALTY
         scores[Intent.MUSTER] -= _WITHDRAW_PENALTY
         scores[Intent.FORTIFY] += 20
@@ -520,8 +541,20 @@ def _hunt_drive(world: World, faction: Faction) -> int:
     return faction.sauron_strength + pull + _HUNT_URGENCY
 
 
+def _perceived_shadow(world: World) -> int:
+    """The greatest ``sauron_strength`` abroad this tick — how loudly the Shadow
+    presses on the world (0 in a light world). Only the dark realm carries a
+    non-zero value, so this is Mordor's strength; phase 2 reads it so a withdrawn
+    faction can rouse when Mordor grows strong (see :data:`ROUSE_STRENGTH_MIN`)."""
+    return max((f.sauron_strength for f in factions(world)), default=0)
+
+
 def _decide(
-    faction: Faction, rng: random.Random, canonicity: float, hunt_drive: int
+    faction: Faction,
+    rng: random.Random,
+    canonicity: float,
+    hunt_drive: int,
+    shadow: int = 0,
 ) -> Intent:
     """Pick this faction's intent: top weighted-utility score + RNG jitter.
 
@@ -529,7 +562,7 @@ def _decide(
     the whole decision is reproducible under the run seed. Ties break by menu
     order (``max`` keeps the first seen).
     """
-    base = _score_intents(faction, canonicity, hunt_drive)
+    base = _score_intents(faction, canonicity, hunt_drive, shadow)
     best: Optional[Intent] = None
     best_score = None
     for intent in INTENT_MENU:
@@ -554,8 +587,9 @@ def faction_decisions(world: World, rng: random.Random) -> List[Event]:
     """
     events: List[Event] = []
     canonicity = world.config.canonicity
+    shadow = _perceived_shadow(world)
     for faction in deciding_factions(world):
-        intent = _decide(faction, rng, canonicity, _hunt_drive(world, faction))
+        intent = _decide(faction, rng, canonicity, _hunt_drive(world, faction), shadow)
         target_id = 0
         if intent is Intent.ATTACK:
             target_id, _ = _hostility(faction)

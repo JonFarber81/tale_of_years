@@ -49,7 +49,7 @@ _FOREST_CANOPY_CELL = (13, 9)  # round tree canopy
 # *what folk* (figure) at a glance. Cells picked from the sheet's base figures:
 # skin/robe/beard/size distinguish the folk even at tile size.
 _PEOPLE_CELL: Dict[str, Tuple[int, int]] = {
-    "men": (0, 1),      # a plain human figure
+    "men": (0, 7),      # a harnessed warrior in a leather-strapped tunic
     "elves": (1, 5),    # a fair, white-haired robed figure
     "dwarves": (1, 6),  # a stout bearded figure
     "orcs": (1, 3),     # a green-skinned figure
