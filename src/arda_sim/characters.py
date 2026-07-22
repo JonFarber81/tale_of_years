@@ -577,34 +577,8 @@ def bloodline(world: World, char_id: int) -> List[Character]:
     return line
 
 
-def render_bloodline(world: World, char_id: int) -> str:
-    """A readable, indented rendering of a character's bloodline (dynasty view).
-
-    Headless and deterministic — the chronicle/inspection surface reads this; a
-    richer Qt tree can replace the presentation without touching the query.
-    """
-    root = _character(world, char_id)
-    if root is None:
-        return f"(no such character #{char_id})"
-    lines: List[str] = []
-    for forebear in reversed(ancestors(world, char_id)):
-        lines.append(f"{_kin_label(world, forebear)}")
-    lines.append(f"{_kin_label(world, root)}  ← this line")
-    _append_descendants(world, char_id, depth=1, out=lines)
-    return "\n".join(lines)
-
-
-def _append_descendants(world: World, char_id: int, depth: int, out: List[str]) -> None:
-    for child in children_of(world, char_id):
-        out.append(f"{'  ' * depth}└ {_kin_label(world, child)}")
-        _append_descendants(world, child.id, depth + 1, out)
-
-
-def _kin_label(world: World, char: Character) -> str:
-    """``Name (race, b.YEAR[, †])`` — the one-line identity in a bloodline view."""
-    marks = "" if char.alive else " †"
-    title = f", {char.title}" if char.title else ""
-    return f"{char.name} ({char.race}, b.{char.birth_year}{title}){marks}"
+# The bloodline is presented by the Codex's Dynasty tab (#21), a linked HTML
+# tree built in the UI over these queries — there is no headless text renderer.
 
 
 # -- seeding --------------------------------------------------------------

@@ -30,16 +30,17 @@ from PySide6.QtWidgets import (
 
 from .. import START_YEAR
 from ..armies import Army
-from ..characters import Character, render_bloodline
+from ..characters import Character, ancestors, children_of
 from ..diplomacy import ALLIANCE, NEUTRALITY, VASSALAGE, stance
 from ..economy import faction_population
 from ..war import BATTLE_EVENT, SIEGE_EVENT, fortification
 from ..chronicle import AnnalsFilter, pulse_events, show_all_filter
 from ..entities import Event
-from ..factions import Faction
+from ..factions import Faction, SuccessionRule
 from ..playback import Playback
 from ..ring import Ring, the_ring
 from ..snapshot import Snapshot
+from ..succession import presumptive_heir
 from ..tiles import UNOWNED, TileGrid
 from ..world import format_tick
 from .annals_model import AnnalsModel, EventRole
@@ -64,9 +65,9 @@ from .dossier_html import (
     esc,
     index_table,
     para,
-    pre_block,
     section,
     stat_grid,
+    tab_strip,
 )
 
 # Stance words wear the feed's color vocabulary (inspection-ui ticket 03):
@@ -85,6 +86,11 @@ _DEFAULT_TPS = 2.0
 
 # The One Ring's dossier accent — the same warm gold as its map marker (ticket 13).
 _RING_ACCENT = "#e9c46a"
+
+# Dynasty-view node badges (#21): a warm gold marks the seated ruler, the
+# dynasty purple the presumptive heir — read against the tree's linked nodes.
+_RULER_BADGE = "#c99a3b"
+_HEIR_BADGE = _FEALTY_COLOR
 
 
 class MainWindow(QMainWindow):
@@ -420,6 +426,7 @@ class MainWindow(QMainWindow):
             "tile": self._tile_page,
             "site": self._site_page,
             "faction": self._faction_page,
+            "dynasty": self._dynasty_page,
             "host": self._host_page,
             "event": self._event_page,
             "ring": self._ring_page,
@@ -455,6 +462,23 @@ class MainWindow(QMainWindow):
         faction_id = self._int_ident(ident)
         faction = self._faction(faction_id) if faction_id is not None else None
         return self.describe_faction(faction) if faction is not None else None
+
+    def _dynasty_page(self, ident: str) -> Optional[str]:
+        """A Dynasty tab (ADR-0014): ``codex://dynasty/faction:<id>``.
+
+        The ident is **typed** — a ``<type>:<id>`` pair naming what roots the
+        tree. Only ``faction`` is served here (its current leader roots the
+        ruling bloodline); the ``character`` variant lands with #18. A malformed
+        or unknown-type ident is a dead link (``None``), never a raise.
+        """
+        kind, sep, raw = ident.partition(":")
+        if not sep or kind != "faction":
+            return None
+        faction_id = self._int_ident(raw)
+        faction = self._faction(faction_id) if faction_id is not None else None
+        if faction is None or self._latest_snapshot is None:
+            return None
+        return self.describe_dynasty(faction)
 
     def _host_page(self, ident: str) -> Optional[str]:
         army_id = self._int_ident(ident)
@@ -1019,6 +1043,23 @@ class MainWindow(QMainWindow):
             bits.append(f"vassal of {names.get(faction.overlord_faction_id, '—')}")
         return " · ".join(bits) if bits else None
 
+    def _faction_tabs(self, faction: Faction, active: str) -> str:
+        """The faction dossier's internal tab strip (ADR-0014): each entry an
+        ordinary ``codex://`` page, so history/back reach every tab. Both the
+        Overview and Dynasty pages emit this same strip, differing only in which
+        entry is active — #20/#25 add their Diplomacy/Regions entries here once.
+        """
+        return tab_strip(
+            [
+                ("Overview", f"codex://faction/{faction.id}", active == "Overview"),
+                (
+                    "Dynasty",
+                    f"codex://dynasty/faction:{faction.id}",
+                    active == "Dynasty",
+                ),
+            ]
+        )
+
     def describe_faction(self, faction: Faction) -> str:
         """A faction dossier (HTML): banner, stats, then the deep sections."""
         leader = None
@@ -1032,6 +1073,7 @@ class MainWindow(QMainWindow):
                 faction.name,
                 self._owner_accent(faction.id),
             ),
+            self._faction_tabs(faction, active="Overview"),
             stat_grid(
                 [
                     ("Leader", leader.name if leader else "—"),
@@ -1046,10 +1088,6 @@ class MainWindow(QMainWindow):
         if diplomacy_lines:
             parts.append(section("Diplomacy"))
             parts.append(para("<br>".join(diplomacy_lines)))
-        bloodline = self._describe_bloodline(leader)
-        if bloodline:
-            parts.append(section("Bloodline"))
-            parts.append(pre_block(bloodline))
         recent = [
             ev
             for ev in self._events
@@ -1130,15 +1168,106 @@ class MainWindow(QMainWindow):
         }.get(label, _WAR_COLOR)
         return f'<span style="color: {color}">{esc(label)}</span>'
 
-    def _describe_bloodline(self, leader: Optional[object]) -> Optional[str]:
-        """The ruling leader's bloodline (dynasty view) as of the displayed year.
+    def describe_dynasty(self, faction: Faction) -> str:
+        """The Dynasty tab (#21): the ruling bloodline as an indented, linked tree.
 
-        A bloodline is a pure query over kinship id-fields; the snapshot exposes the
-        same ``entities`` map those queries read, so it stands in for the live world.
+        Rooted at the faction's current leader, it draws forebears, self, then
+        descendants — a linked HTML tree over the same kinship queries the heir
+        walk reads (``ancestors``/``children_of``). Dead kin show ``†`` dimmed;
+        the current ruler and the presumptive heir are badged; spouses hang
+        inline off their partner (``⚭``), reachable but never walked as a branch.
+        Every kin node is a ``codex://character/<id>`` link (live once #18 lands).
         """
-        if not isinstance(leader, Character) or self._latest_snapshot is None:
-            return None
-        return render_bloodline(self._latest_snapshot, leader.id)
+        snapshot = self._latest_snapshot
+        leader = None
+        if faction.leader_id is not None and snapshot is not None:
+            leader = snapshot.entity(faction.leader_id)
+        parts = [
+            banner("Dynasty", faction.name, self._owner_accent(faction.id)),
+            self._faction_tabs(faction, active="Dynasty"),
+        ]
+        if not isinstance(leader, Character):
+            parts.append(dim_para("This seat holds no ruling line to trace."))
+            return "".join(parts)
+        # Past the guard a leader resolved, so the snapshot is non-None.
+
+        elective = faction.succession_rule == SuccessionRule.ELECTIVE.value
+        heir = None if elective else presumptive_heir(snapshot, faction)
+        if elective:
+            parts.append(dim_para("Seat is elective — no fixed heir."))
+        elif heir is not None:
+            parts.append(
+                para(
+                    '<span style="color: %s">Presumptive heir: </span>%s'
+                    % (DIM, self._kin_link(heir))
+                )
+            )
+
+        lines: List[str] = []
+        heir_id = heir.id if heir is not None else None
+        for forebear in reversed(ancestors(snapshot, leader.id)):
+            lines.append(self._dynasty_line(forebear, 0, leader.id, heir_id))
+        lines.append(self._dynasty_line(leader, 0, leader.id, heir_id))
+        self._append_dynasty_descendants(leader.id, 1, lines, leader.id, heir_id)
+        parts.append(para("<br>".join(lines)))
+        return "".join(parts)
+
+    def _append_dynasty_descendants(
+        self,
+        char_id: int,
+        depth: int,
+        out: List[str],
+        ruler_id: int,
+        heir_id: Optional[int],
+    ) -> None:
+        """Walk the child links depth-first (each child's line before its own
+        children, indented one deeper), appending an HTML line per descendant."""
+        for child in children_of(self._latest_snapshot, char_id):
+            out.append(self._dynasty_line(child, depth, ruler_id, heir_id))
+            self._append_dynasty_descendants(
+                child.id, depth + 1, out, ruler_id, heir_id
+            )
+
+    def _dynasty_line(
+        self, char: Character, depth: int, ruler_id: int, heir_id: Optional[int]
+    ) -> str:
+        """One node's line: indentation, a branch glyph below the root, the linked
+        node with its spouse and badges — dimmed whole when the kin is dead."""
+        indent = "&nbsp;&nbsp;&nbsp;&nbsp;" * depth
+        branch = "└&nbsp;" if depth > 0 else ""
+        node = self._kin_link(char)
+        if char.spouse_id is not None and self._latest_snapshot is not None:
+            spouse = self._latest_snapshot.entity(char.spouse_id)
+            if isinstance(spouse, Character):
+                node += f" ⚭ {self._kin_link(spouse)}"
+        if char.id == ruler_id:
+            node += self._dynasty_badge("Ruler", _RULER_BADGE)
+        if heir_id is not None and char.id == heir_id:
+            node += self._dynasty_badge("Heir", _HEIR_BADGE)
+        line = indent + branch + node
+        if not char.alive:  # the whole line dims for a dead kin
+            return f'<span style="color: {DIM}">{line}</span>'
+        return line
+
+    @staticmethod
+    def _kin_link(char: Character) -> str:
+        """A kin node: a ``codex://character/<id>`` link, ``†`` if dead.
+
+        Emitted unconditionally — until #18 registers the ``character`` kind
+        these resolve to the pane's graceful no-such-page notice, and self-heal
+        when it lands."""
+        mark = "" if char.alive else " †"
+        return (
+            f'<a href="codex://character/{char.id}">{esc(char.name)}</a>{mark}'
+        )
+
+    @staticmethod
+    def _dynasty_badge(text: str, color: str) -> str:
+        """A small colored badge trailing a node (the ruler, the heir)."""
+        return (
+            f'&nbsp;<span style="color: {color}; font-size: small">'
+            f"<b>[{esc(text)}]</b></span>"
+        )
 
     # -- UI -> worker ----------------------------------------------------
 

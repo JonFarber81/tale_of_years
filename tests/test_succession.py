@@ -30,6 +30,7 @@ from arda_sim.succession import (
     SUCCESSION_EVENT,
     _owned_tile_count,
     _strongest_bordering_faction,
+    presumptive_heir,
     succession,
 )
 from arda_sim.tiles import UNOWNED, Region, Terrain, TileGrid
@@ -160,6 +161,58 @@ def test_bloodline_rule_falls_back_to_election_when_kin_are_gone():
     succession(world, world.rng)
 
     assert realm.leader_id == steward.id  # kin exhausted -> the realm elected
+
+
+# -- presumptive heir: the rng-free preview (#21) ------------------------
+
+def test_presumptive_heir_reads_the_senior_living_descendant_without_a_vacancy():
+    # A living seat still previews its heir — no death, no RNG draw, no handover.
+    world, _grid, _ = seed_world("preview")
+    gondor = _faction(world, "Gondor")
+    heir = presumptive_heir(world, gondor)
+    assert heir is not None and heir.name == "Denethor II"
+    # It is a pure read: the seat is untouched and the walk matches the real one.
+    assert gondor.leader_id == _character(world, "Ecthelion II").id
+
+
+def test_presumptive_heir_is_none_for_an_elective_seat():
+    world = World.new_run("elective-heir")
+    king = add_character(world, "Old King", Race.MAN, 2900, role=Role.RULER)
+    realm = add_faction(
+        world, "Elective Realm", FactionKind.REALM,
+        succession_rule=SuccessionRule.ELECTIVE, leader_id=king.id,
+    )
+    king.faction_id = realm.id
+    # Even with living kin present, an elective seat has no fixed heir to preview.
+    add_character(world, "Kin", Race.MAN, 2930, faction_id=realm.id, parent_ids=[king.id])
+    assert presumptive_heir(world, realm) is None
+
+
+def test_presumptive_heir_skips_a_dead_descendant_for_the_next_in_line():
+    world = World.new_run("skip-dead")
+    king = add_character(world, "King", Race.MAN, 2900, role=Role.RULER)
+    realm = add_faction(
+        world, "Kin Realm", FactionKind.REALM,
+        succession_rule=SuccessionRule.AGNATIC_PRIMOGENITURE, leader_id=king.id,
+    )
+    king.faction_id = realm.id
+    elder = add_character(world, "Elder", Race.MAN, 2925, faction_id=realm.id, parent_ids=[king.id])
+    younger = add_character(world, "Younger", Race.MAN, 2930, faction_id=realm.id, parent_ids=[king.id])
+    assert presumptive_heir(world, realm).id == elder.id  # senior first
+    elder.status = EntityStatus.DEAD.value
+    assert presumptive_heir(world, realm).id == younger.id  # the dead are skipped
+
+
+def test_presumptive_heir_is_none_when_no_kin_survive():
+    world = World.new_run("no-kin")
+    king = add_character(world, "Lone King", Race.MAN, 2900, role=Role.RULER)
+    realm = add_faction(
+        world, "Lonely Realm", FactionKind.REALM,
+        succession_rule=SuccessionRule.AGNATIC_PRIMOGENITURE, leader_id=king.id,
+    )
+    king.faction_id = realm.id
+    # No descendants, no collateral: the preview is None (the phase would elect).
+    assert presumptive_heir(world, realm) is None
 
 
 # -- failed line: fragmentation & absorption -----------------------------

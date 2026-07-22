@@ -690,6 +690,109 @@ def test_faction_dossier_wears_its_map_color(qapp):
         window.close()
 
 
+def _seeded_faction(window, name):
+    """Advance one tick and return the named Faction from the displayed snapshot."""
+    snap, _ = window._playback.advance()
+    window._on_tick_advanced(snap, [])
+    return next(
+        f
+        for f in snap.entities.values()
+        if f.__class__.__name__ == "Faction" and f.name == name
+    )
+
+
+def test_faction_dossier_shows_a_dynasty_tab_and_drops_the_bloodline_block(qapp):
+    # The faction page grows a tab strip (Overview here, Dynasty a codex:// link)
+    # and the old inline plain-text Bloodline section is gone (#21).
+    window = build_window("fellowship")
+    try:
+        gondor = _seeded_faction(window, "Gondor")
+        html = window.describe_faction(gondor)
+        assert "Overview" in html and "Dynasty" in html
+        assert f"codex://dynasty/faction:{gondor.id}" in html
+        assert "BLOODLINE" not in html and "<pre" not in html
+    finally:
+        window.close()
+
+
+def test_dynasty_page_renders_a_linked_badged_tree(qapp):
+    # codex://dynasty/faction:<id> draws the ruling bloodline: every kin a
+    # character link, the seated ruler and the presumptive heir badged. Back
+    # returns to the faction Overview (ordinary history).
+    from arda_sim.ui.codex import CodexAddress
+
+    window = build_window("fellowship")
+    try:
+        gondor = _seeded_faction(window, "Gondor")
+        window._codex.navigate(CodexAddress("faction", str(gondor.id)))
+        window._codex.open_url(f"codex://dynasty/faction:{gondor.id}")
+        html = window._codex.browser.toHtml()
+        text = window._codex.browser.toPlainText()
+        assert "DYNASTY" in text
+        assert "[Ruler]" in text and "[Heir]" in text  # both badged
+        ecthelion = window._latest_snapshot.entity(gondor.leader_id)
+        assert f"codex://character/{ecthelion.id}" in html  # kin are links
+        # Following a kin link is a dead link until #18 registers `character`.
+        window._codex.open_url(f"codex://character/{ecthelion.id}")
+        assert "No such page" in window._codex.browser.toPlainText()
+        window._codex.go_back()  # back to the dynasty tree
+        window._codex.go_back()  # back to the Overview tab
+        assert "FACTION" in window._codex.browser.toPlainText()
+    finally:
+        window.close()
+
+
+def test_dynasty_tree_hangs_spouses_inline_and_marks_the_dead(qapp):
+    # Rohan's line: Thengel weds Morwen — she hangs off his node (⚭, linked),
+    # not walked as a branch. A dead kin shows † and dims.
+    from arda_sim.characters import Character
+    from arda_sim.entities import EntityStatus
+
+    window = build_window("fellowship")
+    try:
+        rohan = _seeded_faction(window, "Rohan")
+        morwen = next(
+            e
+            for e in window._latest_snapshot.entities.values()
+            if isinstance(e, Character) and e.name == "Morwen"
+        )
+        html = window.describe_dynasty(rohan)
+        assert "⚭" in html and f"codex://character/{morwen.id}" in html
+        assert "†" not in html  # all alive at seed
+        morwen.status = EntityStatus.DEAD.value
+        assert "†" in window.describe_dynasty(rohan)  # the dead are marked
+    finally:
+        window.close()
+
+
+def test_dynasty_page_notes_an_elective_seat_has_no_heir(qapp):
+    # An elective realm previews no fixed heir: an explicit note, no [Heir] badge.
+    from arda_sim.factions import SuccessionRule
+
+    window = build_window("fellowship")
+    try:
+        gondor = _seeded_faction(window, "Gondor")
+        gondor.succession_rule = SuccessionRule.ELECTIVE.value
+        html = window.describe_dynasty(gondor)
+        assert "elective" in html.lower()
+        assert "[Heir]" not in html
+    finally:
+        window.close()
+
+
+def test_malformed_dynasty_ident_is_a_dead_link(qapp):
+    from arda_sim.ui.codex import CodexAddress
+
+    window = build_window("fellowship")
+    try:
+        _seeded_faction(window, "Gondor")  # a snapshot exists
+        for ident in ("faction:banana", "character:1", "999999", "faction:999999"):
+            window._codex.navigate(CodexAddress("dynasty", ident))
+            assert "No such page" in window._codex.browser.toPlainText()
+    finally:
+        window.close()
+
+
 def test_annals_click_pushes_dossier_into_the_codex(qapp):
     window = build_window("fellowship")
     window._map.focus_tile = lambda col, row: None

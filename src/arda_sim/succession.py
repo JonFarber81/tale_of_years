@@ -101,18 +101,34 @@ def _factions_with_vacant_seat(world: World) -> List[Faction]:
 # Heir resolution
 # =========================================================================
 
+def presumptive_heir(world: World, faction: Faction) -> Optional[Character]:
+    """The kin who *would* inherit this seat as the record stands (CONTEXT.md).
+
+    A pure, rng-free preview of succession — the senior living descendant, else
+    the nearest living collateral — for a kin-succession realm. An **ELECTIVE**
+    seat draws the RNG to elect and so has no fixed heir to show: it returns
+    ``None`` rather than fabricating one. Distinct from :func:`_resolve_heir`,
+    which enacts the real handover (and may elect); this only *reads* the line,
+    so the Dynasty view can badge an heir without perturbing a run.
+    """
+    if faction.succession_rule == SuccessionRule.ELECTIVE.value:
+        return None
+    return _kin_heir(world, faction.leader_id)
+
+
 def _resolve_heir(
     world: World, faction: Faction, rng: random.Random
 ) -> Optional[Character]:
     """The next holder of the seat under this realm's rule, or ``None`` on failure.
 
-    ELECTIVE realms elect outright; the bloodline rules walk kin first and fall
-    back to an election only when no living kin remain.
+    ELECTIVE realms elect outright; the bloodline rules walk kin first (the same
+    rng-free walk :func:`presumptive_heir` previews) and fall back to an election
+    only when no living kin remain.
     """
     if faction.succession_rule == SuccessionRule.ELECTIVE.value:
         return _elect(world, faction, rng)
     if faction.succession_rule in _KIN_RULES:
-        heir = _kin_heir(world, faction.leader_id)
+        heir = presumptive_heir(world, faction)
         if heir is not None:
             return heir
     # Kin exhausted (or an unknown rule): fall back to an election of the realm's

@@ -94,6 +94,28 @@ def index_table(headers: Iterable[str], rows: Iterable[Iterable[str]]) -> str:
     )
 
 
+def tab_strip(tabs: Iterable[Tuple[str, str, bool]]) -> str:
+    """A dossier's internal tab strip (ADR-0014): ``codex://`` links, active flat.
+
+    Each tab is ``(label, codex:// url, active?)``. The active tab renders as
+    bold plain text (you are here); the rest as links, so activating one is an
+    ordinary navigation and every tab sits in history. Adding a tab is a new
+    entry, never new chrome — #20's Diplomacy and #25's Regions reuse this.
+    An empty ``tabs`` renders nothing.
+    """
+    cells = [
+        f"<b>{esc(label)}</b>"
+        if active
+        else f'<a href="{_escape(url, quote=True)}">{esc(label)}</a>'
+        for label, url, active in tabs
+    ]
+    if not cells:
+        return ""
+    return para(
+        f'<span style="color: {DIM}">' + " &nbsp;·&nbsp; ".join(cells) + "</span>"
+    )
+
+
 def section(title: str) -> str:
     """A small-caps dimmed section header with breathing room above."""
     return (
