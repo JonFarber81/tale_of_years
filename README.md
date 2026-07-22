@@ -122,14 +122,18 @@ arda-sim-ui --seed fellowship --canonicity 1.0
 ```
 
 Play/pause, change speed, step a month, scrub the timeline, and click any realm's
-territory to inspect its leader, bloodline, diplomacy, and recent history.
+territory to open its dossier in the **Codex** — the browser pane where every
+entity is a page, with back/forward history and a name-search omnibox. A faction
+dossier carries internal tabs (Overview, and a **Dynasty** tab that draws the
+ruling bloodline as a linked tree — the seated ruler and presumptive heir badged,
+the dead marked, spouses hung inline — each node a link to the kin's own page).
 
 The **annals feed** reads as a chronicle, not a log: events group under year
 dividers, colored by category bucket (**war** red, **diplomacy** blue,
 **dynasty** purple, **construction** green) with important events bold and the
 rest dimmed under *Show all*. The bucket legend doubles as a filter — uncheck a
-chip to hide that category. Clicking an event opens its **dossier** in the
-Inspection dock (battles, sieges, conquests, and razings render as composed
+chip to hide that category. Clicking an event opens its **dossier** in the Codex
+(battles, sieges, conquests, and razings render as composed
 prose from the recorded facts), and an event that happened *somewhere* — marked
 with a pin — also pans the map to the spot with a transient pulse. Zoom runs
 from the whole map just fitting the window down to tile level.
