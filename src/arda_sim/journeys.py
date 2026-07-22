@@ -29,7 +29,6 @@ from typing import List, Optional
 from .armies import find_path, step_along_path
 from .characters import Character
 from .entities import Entity, EntityStatus, Event, register_entity_type
-from .rng import make_rng
 from .world import World
 
 # Event this phase emits: a journeying character reached its destination site.
@@ -142,9 +141,9 @@ def character_journeys(world: World, rng: random.Random) -> List[Event]:
     Ordered among the movers (armies' ``movement``, the Nine's ``hunt``) and
     **before** the Ring phase, so an arriving traveller is standing on the tile
     when the Ring phase looks. Draws **nothing** from the shared ``rng`` — pathing
-    and stepping are the same pure helpers hosts and wraiths use — building instead
-    an isolated per-tick RNG (``seed_str|journeys|tick``) in the ADR-0008 pattern,
-    even though the inert slice draws nothing from it yet.
+    and stepping are the same pure helpers hosts and wraiths use — and this inert
+    slice makes no draw at all; when motives land they take an isolated per-tick RNG
+    (``seed_str|journeys|tick``) in the ADR-0008 pattern, never the shared stream.
 
     On arrival (the traveller's tile is the destination site's tile) the character
     is set down at its destination site, its abroad state cleared, and the Journey
@@ -153,9 +152,10 @@ def character_journeys(world: World, rng: random.Random) -> List[Event]:
     grid = world.grid
     if grid is None:
         return []
-    # Isolated per-tick stream (ADR-0008): future journey motives draw here, never
-    # from the shared pipeline rng, so adding characters rewrites no other history.
-    _rng = make_rng(f"{world.config.seed_str}|journeys|{world.tick}")
+    # Isolated per-tick stream (ADR-0008): when motives land they must draw from
+    # ``make_rng(f"{world.config.seed_str}|journeys|{world.tick}")`` — never the
+    # shared pipeline ``rng`` — so adding characters rewrites no other history.
+    # This slice advances only along a pre-plotted path, so it makes no draw at all.
 
     events: List[Event] = []
     for journey in journeys(world, alive_only=True):
