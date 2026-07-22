@@ -33,7 +33,7 @@ from arda_sim.world import World  # noqa: E402
 from arda_sim.ui.codex import CodexAddress  # noqa: E402
 from arda_sim.ui.codex_pages import (  # noqa: E402
     CodexPages,
-    _RingTrendSample,
+    RingTrendSample,
     _AMITY_COLOR,
     _FEALTY_COLOR,
     _WAR_COLOR,
@@ -83,7 +83,7 @@ def _feed(pages, snapshots):
             if ring is not None:
                 trend_tick = snap.tick
                 trend.append(
-                    _RingTrendSample(snap.tick, snap.year, ring.corruption, ring.pull)
+                    RingTrendSample(snap.tick, snap.year, ring.corruption, ring.pull)
                 )
         pages.update(
             snapshot=snap,

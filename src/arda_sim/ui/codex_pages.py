@@ -64,7 +64,7 @@ _RULER_BADGE = "#c99a3b"
 _HEIR_BADGE = _FEALTY_COLOR
 
 
-class _RingTrendSample(NamedTuple):
+class RingTrendSample(NamedTuple):
     """One per-tick reading of the Ring's scalars, for the trend sparkline (#23).
 
     The window accumulates the series (a scrub-safe writer keyed off the tick)
@@ -129,7 +129,7 @@ class CodexPages:
         self._latest_snapshot: Optional[Snapshot] = None
         self._events: List[Event] = []
         self._display_year = START_YEAR - 1
-        self._ring_trend: List[_RingTrendSample] = []
+        self._ring_trend: List[RingTrendSample] = []
 
     def update(
         self,
@@ -137,7 +137,7 @@ class CodexPages:
         snapshot: Snapshot,
         events: List[Event],
         display_year: int,
-        ring_trend: List[_RingTrendSample],
+        ring_trend: List[RingTrendSample],
     ) -> None:
         """Refresh the per-tick render context from the window.
 

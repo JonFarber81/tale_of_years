@@ -47,7 +47,7 @@ from .annals_style import (
     types_in_bucket,
 )
 from .codex import CodexAddress, CodexPane
-from .codex_pages import CodexPages, _RingTrendSample, living_armies
+from .codex_pages import CodexPages, RingTrendSample, living_armies
 from .map_view import MapView
 from .sim_worker import SimWorker
 
@@ -88,9 +88,9 @@ class MainWindow(QMainWindow):
         # Per-tick trace of the Ring's corruption/pull — snapshots carry only the
         # current scalars, so the Ring page's sparkline reads from a series the
         # window accumulates as time advances (like the event feed). Each sample
-        # a _RingTrendSample per tick; appended only on a forward advance so a
+        # a RingTrendSample per tick; appended only on a forward advance so a
         # scrub-restore never duplicates or reorders it (issue #23).
-        self._ring_trend: List[_RingTrendSample] = []
+        self._ring_trend: List[RingTrendSample] = []
         self._ring_trend_tick = -1
         self._display_year = START_YEAR - 1
         # The headless Codex page-render library (#39): the window keeps the
@@ -403,7 +403,7 @@ class MainWindow(QMainWindow):
             return
         self._ring_trend_tick = snapshot.tick
         self._ring_trend.append(
-            _RingTrendSample(snapshot.tick, snapshot.year, ring.corruption, ring.pull)
+            RingTrendSample(snapshot.tick, snapshot.year, ring.corruption, ring.pull)
         )
 
     # -- UI -> worker ----------------------------------------------------
