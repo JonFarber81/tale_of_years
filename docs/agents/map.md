@@ -28,6 +28,9 @@ sim core never does, so core and its tests stay Qt-free.
 4. **`diplomacy.py`** — evolves per-pair disposition, derives `stance`, forms treaties/marriages/vassalage, sets & clears the at-war flag.
 5. **`armies.py`** — `movement`: raised `Army` hosts march tile→tile deterministically.
 6. **`sauron.py`** — `nazgul_hunt`: the Nine ride (after armies march).
+6½. **`journeys.py`** — `character_journeys`: named travellers advance tile→tile on
+   their own journeys (ADR-0015 mover), before the Ring phase so an arrival is on
+   the tile when it looks. Isolated per-tick RNG; inert until motives are wired.
 7. **`war.py`** — resolves field battles, sieges, conquest, razing at current positions.
 8. **`economy.py`** — `construction_economy`: yearly treasury income, settlement building (peacetime foil to war).
 9. **`ring.py`** — the One Ring; runs after war so it can read the field. XOR invariant: exactly one of `bearer_id` / `location_id` set.
