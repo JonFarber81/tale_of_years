@@ -115,6 +115,15 @@ def _seeded_faction(pages, playback, name):
     )
 
 
+def _character_named(pages, name):
+    """The named Character from the displayed snapshot."""
+    return next(
+        c
+        for c in pages._latest_snapshot.entities.values()
+        if isinstance(c, Character) and c.name == name
+    )
+
+
 def _event(year, type_="battle", importance=50, **kw):
     # Default to an above-threshold event so the important-only feed shows it;
     # pass importance=0 to model an unimportant (e.g. heartbeat) event.
@@ -131,6 +140,12 @@ def _host(id_, name, size, faction_id=None, **kw):
 def _faction_entity(id_, name, **kw):
     return Faction(
         id=id_, kind="faction", created_year=START_YEAR, name=name, **kw
+    )
+
+
+def _char_entity(id_, name, **kw):
+    return Character(
+        id=id_, kind="character", created_year=START_YEAR, name=name, **kw
     )
 
 
@@ -657,3 +672,160 @@ def test_ring_page_errand_and_trend_absent_when_idle():
     assert "TREND" not in html.upper()  # one sample can't trace a line
     # The founding bearer still shows, held to the present.
     assert "BEARERS" in html.upper() and "present" in html
+
+
+# -- character dossier ----------------------------------------------------
+
+
+def test_character_page_shows_stats_allegiance_traits_and_kin():
+    # A ruler's dossier (#18): race/role/title/status/age/prominence, the
+    # faction and location as linked pages, the trait vector, and linked kin.
+    pages, playback = build_pages("fellowship")
+    _advance(pages, playback, 1)
+    ecthelion = _character_named(pages, "Ecthelion II")
+    denethor = _character_named(pages, "Denethor II")
+    html = pages.describe_character(ecthelion)
+    assert "CHARACTER · DUNEDAIN" in html  # banner kind tag carries the race
+    assert "Steward of Gondor" in html and "Ruler" in html
+    assert "alive" in html  # active reads as alive
+    assert "Prominence" in html and "Leadership" in html  # stats + trait vector
+    # Faction and location link out to their own pages.
+    assert f"codex://faction/{ecthelion.faction_id}" in html
+    assert f"codex://site/{ecthelion.location_id}" in html
+    # Kin: his child links to the (now live) character page.
+    assert f"codex://character/{denethor.id}" in html
+    # An Overview↔Dynasty tab strip, the Dynasty entry rooted at him.
+    assert "Overview" in html and "Dynasty" in html
+    assert f"codex://dynasty/character:{ecthelion.id}" in html
+
+
+def test_character_page_shows_weariness_only_for_elves():
+    # Weariness is an Elf-only drive: it appears on an Elf's dossier and not a
+    # Man's (#18).
+    pages, playback = build_pages("fellowship")
+    _advance(pages, playback, 1)
+    elrond = _character_named(pages, "Elrond")
+    thengel = _character_named(pages, "Thengel")  # a Man
+    assert "Weariness" in pages.describe_character(elrond)
+    assert "Weariness" not in pages.describe_character(thengel)
+
+
+def test_character_page_marks_spouse_and_status():
+    # A wedded couple: each names the other as spouse (linked), and a dead
+    # person's status reads "dead".
+    from arda_sim.entities import EntityStatus
+
+    pages, playback = build_pages("fellowship")
+    _advance(pages, playback, 1)
+    thengel = _character_named(pages, "Thengel")
+    morwen = _character_named(pages, "Morwen")
+    html = pages.describe_character(thengel)
+    assert "Spouse" in html and f"codex://character/{morwen.id}" in html
+    morwen.status = EntityStatus.DEAD.value
+    assert "dead" in pages.describe_character(morwen)
+
+
+def test_character_address_resolves_live_and_dead_links():
+    # The registry: a known id renders; garbage, an unknown id, and an id absent
+    # from the displayed year are dead links (None), never a raise.
+    pages, playback = build_pages("fellowship")
+    _advance(pages, playback, 1)
+    ecthelion = _character_named(pages, "Ecthelion II")
+    assert pages.render(CodexAddress("character", str(ecthelion.id))) is not None
+    assert pages.render(CodexAddress("character", "not-an-id")) is None
+    assert pages.render(CodexAddress("character", "999999")) is None
+
+
+def test_character_search_is_snapshot_scoped():
+    # A known character surfaces in the omnibox, linking to its dossier, with a
+    # detail line; and the candidate set is drawn from the displayed snapshot.
+    pages, playback = build_pages("fellowship")
+    _advance(pages, playback, 1)
+    ecthelion = _character_named(pages, "Ecthelion II")
+    candidates = pages._search_candidates()
+    hit = next(c for c in candidates if c[0] == "Ecthelion II")
+    assert hit[2] == CodexAddress("character", str(ecthelion.id))
+    assert "Dunedain" in hit[1] and "Steward of Gondor" in hit[1]
+    # Search page: typing the name returns the linked hit.
+    html = pages._search_page("Ecthelion")
+    assert f"codex://character/{ecthelion.id}" in html
+
+
+def test_dynasty_renderer_roots_at_a_character():
+    # codex://dynasty/character:<id> renders the family tree rooted at that
+    # person — its forebears and descendants as linked nodes — and the faction
+    # variant is untouched (#18).
+    pages, playback = build_pages("fellowship")
+    _advance(pages, playback, 1)
+    denethor = _character_named(pages, "Denethor II")
+    ecthelion = _character_named(pages, "Ecthelion II")  # his father
+    html = pages.render(CodexAddress("dynasty", f"character:{denethor.id}"))
+    assert html is not None and "DYNASTY" in html.upper()
+    # The forebear is drawn as a linked node above him.
+    assert f"codex://character/{ecthelion.id}" in html
+    assert f"codex://character/{denethor.id}" in html
+    # A malformed / unknown-type dynasty ident stays a dead link.
+    assert pages.render(CodexAddress("dynasty", "character:nope")) is None
+    assert pages.render(CodexAddress("dynasty", "wraith:1")) is None
+
+
+# -- characters index -----------------------------------------------------
+
+
+def test_characters_index_lists_people_as_linked_rows():
+    # The Characters index: every person in the snapshot as a table, each name
+    # row linking to their dossier — read off the real seeded roster.
+    pages, playback = build_pages("fellowship")
+    _advance(pages, playback, 1)
+    ecthelion = _character_named(pages, "Ecthelion II")
+    html = pages._index_page("characters")
+    assert "INDEX" in html and "Characters" in html
+    for header in ("Name", "Race", "Faction", "Role", "Status", "Age", "Prominence"):
+        assert header in html
+    assert f'href="codex://character/{ecthelion.id}"' in html
+    assert "Ecthelion II" in html
+    # A ruler's faction links out to its dossier.
+    assert f'href="codex://faction/{ecthelion.faction_id}"' in html
+
+
+def test_characters_index_re_sorts_by_the_ident_sort_key():
+    # codex://index/characters/<key> renders the same page under a different
+    # sort; the active column head is bold text, the rest are sort links.
+    pages, _playback = build_pages("fellowship")
+    # Prominence order (great, minor) is the reverse of name order (Aa < Zz).
+    great = _char_entity(9001, "Zzyzx the Great", prominence=200)
+    minor = _char_entity(9002, "Aaric the Minor", prominence=5)
+    pages._latest_snapshot = Snapshot(
+        tick=0, year=START_YEAR, entities={9001: great, 9002: minor}
+    )
+    by_prominence = pages._index_page("characters/prominence")
+    assert "<b>Prominence</b>" in by_prominence  # active sort head is bold
+    assert 'href="codex://index/characters/name"' in by_prominence  # others link
+    assert (
+        by_prominence.index("Zzyzx the Great") < by_prominence.index("Aaric the Minor")
+    )
+    # Sorting by name reverses that order.
+    by_name = pages._index_page("characters/name")
+    assert "<b>Name</b>" in by_name
+    assert by_name.index("Aaric the Minor") < by_name.index("Zzyzx the Great")
+    # An unknown sort key falls back to the default, not a dead page.
+    assert pages._index_page("characters/nonsense") == pages._index_page("characters")
+
+
+def test_characters_index_is_snapshot_scoped_and_can_be_empty():
+    # Dead/departed people stay listed (records persist); an empty snapshot
+    # says so rather than rendering a bare table.
+    from arda_sim.entities import EntityStatus
+
+    pages, _playback = build_pages("fellowship")
+    dead = _char_entity(
+        9001, "Old Ghost", status=EntityStatus.DEAD.value, prominence=10
+    )
+    pages._latest_snapshot = Snapshot(
+        tick=0, year=START_YEAR, entities={9001: dead}
+    )
+    html = pages._index_page("characters")
+    assert "Old Ghost" in html and "dead" in html  # the dead remain in the roll
+    pages._latest_snapshot = Snapshot(tick=0, year=START_YEAR, entities={})
+    empty = pages._index_page("characters")
+    assert "Characters" in empty and "No people walk" in empty

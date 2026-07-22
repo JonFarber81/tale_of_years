@@ -163,8 +163,8 @@ class CodexPane(QWidget):
     page).
     """
 
-    #: The index pages in header order — stub renderers until #17/#19/#20.
-    INDEXES = ("armies", "factions", "wars")
+    #: The index pages in header order (#17/#19/#18/#20).
+    INDEXES = ("armies", "factions", "characters", "wars")
 
     #: Emitted on a *fresh* navigation (a click/omnibox visit, not a
     #: back/forward walk) with the :class:`CodexAddress` reached, so the window

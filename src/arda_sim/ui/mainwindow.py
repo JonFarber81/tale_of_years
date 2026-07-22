@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from .. import START_YEAR
 from ..armies import Army
+from ..characters import Character
 from ..war import BATTLE_EVENT, SIEGE_EVENT
 from ..chronicle import AnnalsFilter, pulse_events, show_all_filter
 from ..entities import Event
@@ -380,22 +381,30 @@ class MainWindow(QMainWindow):
         self._codex.navigate(CodexAddress("tile", f"{col},{row}"))
 
     def _on_codex_navigated(self, address: CodexAddress) -> None:
-        """Codex → map: opening a host page centres/highlights its marker.
+        """Codex → map: opening a host or character page centres the map.
 
-        The Codex↔map link runs both ways (ADR-0014); this direction is what
-        makes an armies-index row *click and centre the map on that host* (#17).
-        Only host pages jump the map — a host is the one page kind bound to a
-        single live tile — and only when the host is present and afield.
+        The Codex↔map link runs both ways (ADR-0014). A host page jumps to the
+        host's marker (#17); a character page jumps to the tile of the person's
+        current location (#18) — resolving ``location_id`` → site → tile, the
+        same site→tile gesture the annals rows use. Only these two kinds move
+        the map; a character with no known location leaves it put.
         """
-        if address.kind != "host" or self._latest_snapshot is None:
+        if self._latest_snapshot is None:
             return
         try:
-            army_id = int(address.ident)
+            entity_id = int(address.ident)
         except ValueError:
             return
-        army = self._latest_snapshot.entity(army_id)
-        if isinstance(army, Army) and army.alive:
-            self._map.focus_tile(army.col, army.row)
+        if address.kind == "host":
+            army = self._latest_snapshot.entity(entity_id)
+            if isinstance(army, Army) and army.alive:
+                self._map.focus_tile(army.col, army.row)
+        elif address.kind == "character":
+            char = self._latest_snapshot.entity(entity_id)
+            if isinstance(char, Character) and char.location_id is not None:
+                site = self._grid.site_by_id(char.location_id)
+                if site is not None:
+                    self._map.focus_tile(site.col, site.row)
 
     def _render_page(self, address: CodexAddress) -> Optional[str]:
         """The Codex's registry: resolve an address to page HTML.

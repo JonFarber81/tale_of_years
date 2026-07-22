@@ -45,7 +45,11 @@ _WEARINESS_THRESHOLD = 6_000 * TICKS_PER_YEAR
 _WEARINESS_BASE = 8
 _WEARINESS_JITTER = 25  # exclusive upper bound of the per-tick random add
 
-_TRAIT_KEYS = ("leadership", "martial", "ambition", "loyalty", "wisdom", "guile")
+# The canonical trait vector, in display order — the public name a dossier reads
+# to lay out the six traits; ``_TRAIT_KEYS`` is the module-internal alias the
+# lifecycle math uses.
+TRAIT_KEYS = ("leadership", "martial", "ambition", "loyalty", "wisdom", "guile")
+_TRAIT_KEYS = TRAIT_KEYS
 _DEFAULT_TRAIT = 50
 _HERITABILITY_JITTER = 12  # +/- spread of a child's trait around the parent mean
 
