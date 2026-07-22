@@ -56,6 +56,8 @@ from arda_sim.ui.annals_style import (  # noqa: E402
     bucket_of,
 )
 from arda_sim.ui.app import build_window  # noqa: E402
+from arda_sim.ui.codex_pages import living_armies  # noqa: E402
+from arda_sim.ring import the_ring  # noqa: E402
 from arda_sim.world import format_tick  # noqa: E402
 
 
@@ -262,38 +264,6 @@ def test_seeded_window_streams_visible_prose_into_the_annals(qapp):
         window.close()
 
 
-def test_inspecting_a_realm_shows_its_diplomacy_block(qapp):
-    # Clicking a realm's territory renders a diplomacy dossier (stances + bonds)
-    # from the displayed-year snapshot — the ticket-09 inspection surface.
-    window = build_window("fellowship")  # roster + factions seeded
-    try:
-        for snap, evs in window._playback.fast_forward_to(3 * TICKS_PER_YEAR):
-            window._on_frontier_changed(window._playback.frontier)
-            window._on_tick_advanced(snap, evs)
-        # Open owned ground (no site, no host) headlines the faction with full
-        # depth (inspection-ui 02). Find such a Gondor tile.
-        grid = window._grid
-        gondor = next(k for k, v in window._faction_names.items() if v == "Gondor")
-        sited = {(s.col, s.row) for s in grid.sites}
-        col, row = next(
-            (c, r)
-            for r in range(grid.height)
-            for c in range(grid.width)
-            if grid.owner_at(c, r) == gondor and (c, r) not in sited
-        )
-        text = window.describe_tile(col, row)
-        assert "FACTION" in text and "DIPLOMACY" in text  # full depth
-        # Gondor's seeded temper surfaces as a non-neutral stance toward Mordor.
-        assert "Mordor" in text and "hostility" in text
-        # The stance word wears the war red; the disposition number is dimmed.
-        from arda_sim.ui.mainwindow import _WAR_COLOR
-        from arda_sim.ui.dossier_html import DIM
-
-        assert _WAR_COLOR in text and f'color: {DIM}">(' in text
-    finally:
-        window.close()
-
-
 def test_marching_hosts_render_and_are_inspectable(qapp):
     # Playing the seeded app raises hosts that march across the map; the map
     # layer draws them and clicking a host's tile inspects it (ticket 10).
@@ -302,7 +272,7 @@ def test_marching_hosts_render_and_are_inspectable(qapp):
         for snap, evs in window._playback.fast_forward_to(12 * TICKS_PER_YEAR):
             window._on_frontier_changed(window._playback.frontier)
             window._on_tick_advanced(snap, evs)
-        hosts = window._armies_in(window._latest_snapshot)
+        hosts = living_armies(window._latest_snapshot)
         assert hosts  # at least one host is afield
         # the map drew exactly one disc+sprite marker per living host; marching
         # hosts also add a direction-cue polygon (ticket 06), so count the
@@ -312,7 +282,7 @@ def test_marching_hosts_render_and_are_inspectable(qapp):
         markers = [i for i in window._map._army_items if isinstance(i, QGraphicsPixmapItem)]
         assert len(markers) == len(hosts)
         host = hosts[0]
-        text = window.describe_tile(host.col, host.row)
+        text = window._pages.describe_tile(host.col, host.row)
         assert host.name in text and "Strength" in text and "Destination" in text
     finally:
         window.close()
@@ -569,137 +539,8 @@ def test_tile_click_renders_html_dossier_into_the_browser(qapp):
         window._on_tile_clicked(tile.col, tile.row)
         plain = window._codex.browser.toPlainText()
         assert "SITE" in plain and "Minas Tirith" in plain  # the site headlines
-        html = window.describe_tile(tile.col, tile.row)
+        html = window._pages.describe_tile(tile.col, tile.row)
         assert "<table" in html  # genuinely rich text, not escaped plain text
-    finally:
-        window.close()
-
-
-def test_site_subject_gets_trimmed_faction_context(qapp):
-    # A site headlines; its holder demotes to leader + strength + stance line —
-    # no DIPLOMACY/BLOODLINE/RECENT EVENTS sections (inspection-ui 02).
-    window = build_window("fellowship")
-    try:
-        mt = next(s for s in window._grid.sites if s.name == "Minas Tirith")
-        snap, _ = window._playback.advance()
-        window._on_tick_advanced(snap, [])
-        text = window.describe_tile(mt.col, mt.row)
-        assert "SITE" in text and "GONDOR" in text  # holder's context section
-        assert "Leader" in text and "Strength" in text
-        for full_depth_only in ("DIPLOMACY", "BLOODLINE", "RECENT EVENTS"):
-            assert full_depth_only not in text
-    finally:
-        window.close()
-
-
-def test_bare_unowned_tile_stays_short(qapp):
-    window = build_window("fellowship")
-    try:
-        grid = window._grid
-        sited = {(s.col, s.row) for s in grid.sites}
-        from arda_sim.tiles import UNOWNED
-
-        col, row = next(
-            (c, r)
-            for r in range(grid.height)
-            for c in range(grid.width)
-            if grid.owner_at(c, r) == UNOWNED and (c, r) not in sited
-        )
-        text = window.describe_tile(col, row)
-        assert "TILE" in text and f"({col}, {row})" in text
-        assert "unowned" in text
-        assert "FACTION" not in text and "SITE" not in text
-    finally:
-        window.close()
-
-
-def test_host_dossier_shows_siege_progress_only_mid_siege(qapp):
-    from arda_sim.armies import Army
-    from arda_sim.war import fortification
-
-    window = build_window("fellowship")
-    try:
-        mt = next(s for s in window._grid.sites if s.name == "Minas Tirith")
-        host = Army(
-            id=999, kind="army", created_year=3000, name="Host of Test",
-            col=mt.col, row=mt.row, size=500,
-        )
-        assert "Siege" not in window.describe_army(host)  # not investing
-        host.siege_progress = 91
-        text = window.describe_army(host)
-        assert f"91 / {fortification(mt)}" in text  # progress vs the walls
-        assert "Stands" in text and "Minas Tirith" in text  # the locator line
-    finally:
-        window.close()
-
-
-def test_faction_grid_drops_prominence_and_intent(qapp):
-    window = build_window("fellowship")
-    try:
-        snap, _ = window._playback.advance()
-        window._on_tick_advanced(snap, [])
-        faction = next(
-            f
-            for f in snap.entities.values()
-            if f.__class__.__name__ == "Faction" and f.name == "Gondor"
-        )
-        text = window.describe_faction(faction)
-        assert "Treasury" in text  # the grid is there...
-        assert "Prominence" not in text and "Latest intent" not in text
-    finally:
-        window.close()
-
-
-def test_stance_words_wear_the_feed_colors(qapp):
-    from arda_sim.factions import Faction
-    from arda_sim.ui.mainwindow import (
-        MainWindow,
-        _AMITY_COLOR,
-        _FEALTY_COLOR,
-        _WAR_COLOR,
-    )
-
-    ally = Faction(
-        id=1, kind="faction", created_year=3000, name="A", at_war_with=[2]
-    )
-    at_war = MainWindow._stance_html(ally, 2, "hostility")
-    assert "at war" in at_war and _WAR_COLOR in at_war and "<b" in at_war  # bold red
-    hostile = MainWindow._stance_html(ally, 3, "hostility")
-    assert "hostility" in hostile and _WAR_COLOR in hostile and "<b" not in hostile
-    assert _AMITY_COLOR in MainWindow._stance_html(ally, 3, "alliance")
-    assert _FEALTY_COLOR in MainWindow._stance_html(ally, 3, "vassalage")
-
-
-def test_recent_event_lines_wear_bucket_dots(qapp):
-    from arda_sim.ui.annals_style import BUCKET_COLORS
-    from arda_sim.ui.dossier_html import DIM
-
-    window = build_window("fellowship")
-    try:
-        line = window._event_line(
-            Event(id=1, year=3010, type="battle", text="a battle was joined")
-        )
-        assert "●" in line and BUCKET_COLORS["war"].name() in line
-        neutral = window._event_line(Event(id=2, year=3010, type="mystery"))
-        assert DIM in neutral  # unmapped types dot in the neutral gray
-    finally:
-        window.close()
-
-
-def test_faction_dossier_wears_its_map_color(qapp):
-    from arda_sim.ui import tile_render
-
-    window = build_window("fellowship")
-    try:
-        snap, _ = window._playback.advance()
-        window._on_tick_advanced(snap, [])
-        faction = next(
-            f
-            for f in snap.entities.values()
-            if f.__class__.__name__ == "Faction" and f.name == "Gondor"
-        )
-        html = window.describe_faction(faction)
-        assert tile_render.faction_color(faction.id).name() in html
     finally:
         window.close()
 
@@ -713,20 +554,6 @@ def _seeded_faction(window, name):
         for f in snap.entities.values()
         if f.__class__.__name__ == "Faction" and f.name == name
     )
-
-
-def test_faction_dossier_shows_a_dynasty_tab_and_drops_the_bloodline_block(qapp):
-    # The faction page grows a tab strip (Overview here, Dynasty a codex:// link)
-    # and the old inline plain-text Bloodline section is gone (#21).
-    window = build_window("fellowship")
-    try:
-        gondor = _seeded_faction(window, "Gondor")
-        html = window.describe_faction(gondor)
-        assert "Overview" in html and "Dynasty" in html
-        assert f"codex://dynasty/faction:{gondor.id}" in html
-        assert "BLOODLINE" not in html and "<pre" not in html
-    finally:
-        window.close()
 
 
 def test_dynasty_page_renders_a_linked_badged_tree(qapp):
@@ -756,44 +583,6 @@ def test_dynasty_page_renders_a_linked_badged_tree(qapp):
         window.close()
 
 
-def test_dynasty_tree_hangs_spouses_inline_and_marks_the_dead(qapp):
-    # Rohan's line: Thengel weds Morwen — she hangs off his node (⚭, linked),
-    # not walked as a branch. A dead kin shows † and dims.
-    from arda_sim.characters import Character
-    from arda_sim.entities import EntityStatus
-
-    window = build_window("fellowship")
-    try:
-        rohan = _seeded_faction(window, "Rohan")
-        morwen = next(
-            e
-            for e in window._latest_snapshot.entities.values()
-            if isinstance(e, Character) and e.name == "Morwen"
-        )
-        html = window.describe_dynasty(rohan)
-        assert "⚭" in html and f"codex://character/{morwen.id}" in html
-        assert "†" not in html  # all alive at seed
-        morwen.status = EntityStatus.DEAD.value
-        assert "†" in window.describe_dynasty(rohan)  # the dead are marked
-    finally:
-        window.close()
-
-
-def test_dynasty_page_notes_an_elective_seat_has_no_heir(qapp):
-    # An elective realm previews no fixed heir: an explicit note, no [Heir] badge.
-    from arda_sim.factions import SuccessionRule
-
-    window = build_window("fellowship")
-    try:
-        gondor = _seeded_faction(window, "Gondor")
-        gondor.succession_rule = SuccessionRule.ELECTIVE.value
-        html = window.describe_dynasty(gondor)
-        assert "elective" in html.lower()
-        assert "[Heir]" not in html
-    finally:
-        window.close()
-
-
 def test_malformed_dynasty_ident_is_a_dead_link(qapp):
     from arda_sim.ui.codex import CodexAddress
 
@@ -811,8 +600,12 @@ def test_annals_click_pushes_dossier_into_the_codex(qapp):
     window = build_window("fellowship")
     window._map.focus_tile = lambda col, row: None
     try:
-        window._annals_model.append_events(
-            [_event(START_YEAR, type_="treaty", importance=90)]  # unplaced
+        # Deliver the event through the tick handler (not straight into the
+        # annals model) so the Codex's event lookup — which reads the accumulated
+        # event stream (#39) — can resolve the click to its dossier.
+        window._on_tick_advanced(
+            Snapshot(tick=0, year=START_YEAR),
+            [_event(START_YEAR, type_="treaty", importance=90)],  # unplaced
         )
         model = window._annals_model
         window._on_annals_event_clicked(model.index(1))  # the event row
@@ -894,342 +687,12 @@ def _host(id_, name, size, faction_id=None, **kw):
     )
 
 
-def test_armies_index_lists_hosts_as_linked_rows_sorted_by_strength(qapp):
-    # The Armies index (#17): every host afield, greatest first by default,
-    # each row's name linking to its host page.
-    window = build_window("fellowship")
-    try:
-        gondor = next(k for k, v in window._faction_names.items() if v == "Gondor")
-        rohan = next(k for k, v in window._faction_names.items() if v == "Rohan")
-        small = _host(100, "Lesser Host", 200, faction_id=gondor, col=1, row=1)
-        great = _host(101, "Greater Host", 5000, faction_id=rohan, col=2, row=2)
-        window._latest_snapshot = Snapshot(
-            tick=0, year=START_YEAR, entities={100: small, 101: great}
-        )
-        html = window._index_page("armies")
-        assert "INDEX" in html and "Armies" in html
-        # Every column the ticket asks for heads the table.
-        for header in ("Host", "Faction", "Leader", "Strength", "Destination",
-                       "Target", "Siege"):
-            assert header in html
-        # Each host names a row that links to its host page.
-        assert 'href="codex://host/100"' in html and "Lesser Host" in html
-        assert 'href="codex://host/101"' in html and "Greater Host" in html
-        assert "5000" in html and "200" in html  # strengths render
-        # Faction cells link to the faction pages.
-        assert f'href="codex://faction/{rohan}"' in html
-        # Default sort is strength descending: the great host precedes the lesser.
-        assert html.index("Greater Host") < html.index("Lesser Host")
-    finally:
-        window.close()
-
-
-def test_armies_index_re_sorts_by_the_ident_sort_key(qapp):
-    # codex://index/armies/<key> renders the same page under a different sort;
-    # the active column head is bold text, the rest are sort links.
-    window = build_window("fellowship")
-    try:
-        gondor = next(k for k, v in window._faction_names.items() if v == "Gondor")
-        rohan = next(k for k, v in window._faction_names.items() if v == "Rohan")
-        # Strength order (great, lesser) is the reverse of name order (Greater<Lesser).
-        great = _host(101, "Greater Host", 5000, faction_id=gondor, col=2, row=2)
-        lesser = _host(100, "Lesser Host", 200, faction_id=rohan, col=1, row=1)
-        window._latest_snapshot = Snapshot(
-            tick=0, year=START_YEAR, entities={100: lesser, 101: great}
-        )
-        by_host = window._index_page("armies/host")
-        # Sorted by host name ascending now: Greater before Lesser holds, but by a
-        # different key — assert the active header flipped and a strength link exists.
-        assert "<b>Host</b>" in by_host  # active sort head is bold, not a link
-        assert 'href="codex://index/armies/strength"' in by_host  # others are links
-        # An unknown sort key falls back to the default (strength), not a dead page.
-        assert window._index_page("armies/nonsense") == window._index_page("armies")
-    finally:
-        window.close()
-
-
-def test_armies_index_shows_destination_target_and_siege(qapp):
-    from arda_sim.war import fortification
-
-    window = build_window("fellowship")
-    try:
-        mt = next(s for s in window._grid.sites if s.name == "Minas Tirith")
-        gondor = next(k for k, v in window._faction_names.items() if v == "Gondor")
-        mordor = next(k for k, v in window._faction_names.items() if v == "Mordor")
-        # A host besieging Minas Tirith, marching against Mordor.
-        host = _host(
-            200, "Besiegers", 900, faction_id=gondor, col=mt.col, row=mt.row,
-            dest_site_id=mt.id, target_faction_id=mordor, siege_progress=40,
-        )
-        window._latest_snapshot = Snapshot(
-            tick=0, year=START_YEAR, entities={200: host}
-        )
-        html = window._index_page("armies")
-        assert f'href="codex://site/{mt.id}"' in html  # destination links to the seat
-        assert f'href="codex://faction/{mordor}"' in html  # target realm links
-        assert f"40 / {fortification(mt)}" in html  # siege progress vs the walls
-    finally:
-        window.close()
-
-
-def test_armies_index_is_empty_when_no_hosts_are_afield(qapp):
-    window = build_window("fellowship")
-    try:
-        window._latest_snapshot = Snapshot(tick=0, year=START_YEAR, entities={})
-        html = window._index_page("armies")
-        assert "Armies" in html and "No hosts are afield" in html
-    finally:
-        window.close()
-
-
 def _faction_entity(id_, name, **kw):
     from arda_sim.factions import Faction
 
     return Faction(
         id=id_, kind="faction", created_year=START_YEAR, name=name, **kw
     )
-
-
-def test_factions_index_lists_factions_as_linked_rows(qapp):
-    # The Factions index (#19): every power as a table, each name row linking
-    # to its dossier — read off the real seeded snapshot with live populations.
-    window = build_window("fellowship")
-    try:
-        snap, _ = window._playback.advance()
-        window._on_tick_advanced(snap, [])
-        gondor = next(k for k, v in window._faction_names.items() if v == "Gondor")
-        html = window._index_page("factions")
-        assert "INDEX" in html and "Factions" in html
-        # Every column the ticket asks for heads the table.
-        for header in ("Faction", "Kind", "Population", "Strength", "Treasury",
-                       "Leader", "Wars"):
-            assert header in html
-        # Each faction names a row that links to its dossier.
-        assert f'href="codex://faction/{gondor}"' in html and "Gondor" in html
-    finally:
-        window.close()
-
-
-def test_factions_index_re_sorts_by_the_ident_sort_key(qapp):
-    # codex://index/factions/<key> renders the same page under a different sort;
-    # the active column head is bold text, the rest are sort links.
-    window = build_window("fellowship")
-    try:
-        # Treasury order (rich, poor) is the reverse of name order (Poor<Rich).
-        rich = _faction_entity(9001, "Rich Realm", treasury=5000, military_strength=10)
-        poor = _faction_entity(9002, "Poor Realm", treasury=10, military_strength=90)
-        window._latest_snapshot = Snapshot(
-            tick=0, year=START_YEAR, entities={9001: rich, 9002: poor}
-        )
-        by_treasury = window._index_page("factions/treasury")
-        assert "<b>Treasury</b>" in by_treasury  # active sort head is bold
-        assert 'href="codex://index/factions/name"' in by_treasury  # others link
-        assert by_treasury.index("Rich Realm") < by_treasury.index("Poor Realm")
-        # Sorting by name reverses that order.
-        by_name = window._index_page("factions/name")
-        assert "<b>Faction</b>" in by_name
-        assert by_name.index("Poor Realm") < by_name.index("Rich Realm")
-        # An unknown sort key falls back to the default, not a dead page.
-        assert (
-            window._index_page("factions/nonsense")
-            == window._index_page("factions")
-        )
-    finally:
-        window.close()
-
-
-def test_factions_index_shows_population_and_linked_wars(qapp):
-    # Population reads through economy.faction_population, and each war names
-    # the enemy realm with a link to its dossier.
-    window = build_window("fellowship")
-    try:
-        gondor = next(k for k, v in window._faction_names.items() if v == "Gondor")
-        mordor = next(k for k, v in window._faction_names.items() if v == "Mordor")
-        from arda_sim.economy import faction_population
-
-        expected = faction_population(None, window._grid, gondor)
-        realm = _faction_entity(gondor, "Gondor", at_war_with=[mordor])
-        window._latest_snapshot = Snapshot(
-            tick=0, year=START_YEAR, entities={gondor: realm}
-        )
-        html = window._index_page("factions")
-        assert str(expected) in html  # the derived population renders
-        assert f'href="codex://faction/{mordor}"' in html  # the war enemy links
-    finally:
-        window.close()
-
-
-def test_factions_index_is_empty_when_no_factions_stand(qapp):
-    window = build_window("fellowship")
-    try:
-        window._latest_snapshot = Snapshot(tick=0, year=START_YEAR, entities={})
-        html = window._index_page("factions")
-        assert "Factions" in html and "No factions stand" in html
-    finally:
-        window.close()
-
-
-def test_wars_index_lists_wars_and_treaties_as_deduped_linked_pairs(qapp):
-    # The Wars index (#20): every war and treaty a single row, both sides
-    # linking to their dossiers — a symmetric bond appears once, not per side.
-    window = build_window("fellowship")
-    try:
-        a = _faction_entity(9001, "Arnor", at_war_with=[9002], treaties=[9003])
-        b = _faction_entity(9002, "Barad", at_war_with=[9001])  # war reciprocated
-        c = _faction_entity(9003, "Cardolan", treaties=[9001])  # treaty reciprocated
-        window._faction_names.update({9001: "Arnor", 9002: "Barad", 9003: "Cardolan"})
-        window._latest_snapshot = Snapshot(
-            tick=0, year=START_YEAR, entities={9001: a, 9002: b, 9003: c}
-        )
-        html = window._index_page("wars")
-        assert "INDEX" in html and "Wars" in html
-        for header in ("Relation", "Between", "And"):
-            assert header in html
-        assert "War" in html and "Treaty" in html
-        # Both sides of each pair link to their dossier.
-        for fid in (9001, 9002, 9003):
-            assert f'href="codex://faction/{fid}"' in html
-        # The war is deduped to one row: Arnor's name shows up exactly across
-        # its two rows (war with Barad, treaty with Cardolan), never doubled.
-        assert html.count("codex://faction/9002") == 1  # Barad, war, once
-        assert html.count("codex://faction/9003") == 1  # Cardolan, treaty, once
-    finally:
-        window.close()
-
-
-def test_wars_index_re_sorts_by_the_ident_sort_key(qapp):
-    # codex://index/wars/<key> renders the same page under a different sort;
-    # the active head is bold, the rest link. An unknown key falls back.
-    window = build_window("fellowship")
-    try:
-        a = _faction_entity(9001, "Zeal", at_war_with=[9002])
-        b = _faction_entity(9002, "Anga", at_war_with=[9001])
-        window._faction_names.update({9001: "Zeal", 9002: "Anga"})
-        window._latest_snapshot = Snapshot(
-            tick=0, year=START_YEAR, entities={9001: a, 9002: b}
-        )
-        by_between = window._index_page("wars/between")
-        assert "<b>Between</b>" in by_between  # active sort head is bold
-        assert 'href="codex://index/wars/relation"' in by_between  # others link
-        # Ordered within the pair by name: Anga precedes Zeal.
-        assert by_between.index("Anga") < by_between.index("Zeal")
-        # An unknown sort key falls back to the default, not a dead page.
-        assert window._index_page("wars/nonsense") == window._index_page("wars")
-    finally:
-        window.close()
-
-
-def test_wars_index_is_empty_when_no_bonds_stand(qapp):
-    window = build_window("fellowship")
-    try:
-        lone = _faction_entity(9001, "Hermit")
-        window._faction_names.update({9001: "Hermit"})
-        window._latest_snapshot = Snapshot(
-            tick=0, year=START_YEAR, entities={9001: lone}
-        )
-        html = window._index_page("wars")
-        assert "Wars" in html and "No wars or treaties" in html
-    finally:
-        window.close()
-
-
-def test_wars_index_drops_bonds_to_absent_factions(qapp):
-    # A war/treaty against a faction not in the displayed year has nothing to
-    # link to, so it is dropped rather than rendering a bare id.
-    window = build_window("fellowship")
-    try:
-        a = _faction_entity(9001, "Arnor", at_war_with=[7777])  # 7777 absent
-        window._faction_names.update({9001: "Arnor"})
-        window._latest_snapshot = Snapshot(
-            tick=0, year=START_YEAR, entities={9001: a}
-        )
-        html = window._index_page("wars")
-        assert "No wars or treaties" in html
-        assert "7777" not in html
-    finally:
-        window.close()
-
-
-def test_faction_dossier_shows_a_diplomacy_tab(qapp):
-    # The faction page's tab strip carries a Diplomacy entry (a codex:// link)
-    # alongside Overview and Dynasty (#20).
-    window = build_window("fellowship")
-    try:
-        gondor = _seeded_faction(window, "Gondor")
-        html = window.describe_faction(gondor)
-        assert "Overview" in html and "Diplomacy" in html and "Dynasty" in html
-        assert f"codex://diplomacy/faction:{gondor.id}" in html
-    finally:
-        window.close()
-
-
-def test_diplomacy_page_shows_wars_treaties_drift_and_intent(qapp):
-    # codex://diplomacy/faction:<id> resolves through the diplomacy renderer and
-    # shows active wars, treaties, disposition drift from baseline, and intent.
-    from arda_sim.ui.codex import CodexAddress
-
-    window = build_window("fellowship")
-    try:
-        foe = _faction_entity(9002, "Mordor-ish")
-        ally = _faction_entity(9003, "Rohan-ish")
-        realm = _faction_entity(
-            9001,
-            "Gondor-ish",
-            at_war_with=[9002],
-            treaties=[9003],
-            disposition={"9002": -80, "9003": 55},
-            baseline_disposition={"9002": -60, "9003": 55},
-        )
-        window._faction_names.update(
-            {9001: "Gondor-ish", 9002: "Mordor-ish", 9003: "Rohan-ish"}
-        )
-        window._latest_snapshot = Snapshot(
-            tick=0,
-            year=START_YEAR,
-            entities={9001: realm, 9002: foe, 9003: ally},
-        )
-        window._events.append(
-            _event(
-                START_YEAR,
-                type_="faction_intent",
-                subject_ids=[9001],
-                text="Gondor-ish made ready for war against Mordor-ish.",
-            )
-        )
-        window._display_year = START_YEAR
-        html = window._render_page(CodexAddress("diplomacy", "faction:9001"))
-        text_marks = ("DIPLOMACY", "ACTIVE WARS", "TREATIES", "DRIFT", "STANDING INTENT")
-        for mark in text_marks:
-            assert mark in html.upper()
-        # Wars and treaties link both parties' dossiers.
-        assert f'href="codex://faction/9002"' in html
-        assert f'href="codex://faction/9003"' in html
-        # Drift shows current vs. baseline and the signed delta (−80 vs −60).
-        assert "-80" in html and "-60" in html and "drifted -20" in html
-        assert "at baseline" in html  # the ally hasn't moved (55 == 55)
-        # Intent reads from the latest faction_intent event's prose.
-        assert "made ready for war" in html
-        # The active tab is Diplomacy.
-        assert "codex://faction/9001" in html  # Overview tab links back
-    finally:
-        window.close()
-
-
-def test_diplomacy_page_is_quiet_for_an_isolated_realm(qapp):
-    window = build_window("fellowship")
-    try:
-        lone = _faction_entity(9001, "Hermit")
-        window._faction_names.update({9001: "Hermit"})
-        window._latest_snapshot = Snapshot(
-            tick=0, year=START_YEAR, entities={9001: lone}
-        )
-        window._display_year = START_YEAR
-        html = window.describe_diplomacy_page(lone)
-        assert "At peace with all" in html
-        assert "No standing pacts" in html
-        assert "taken no counsel" in html  # no intent event yet
-    finally:
-        window.close()
 
 
 def test_malformed_diplomacy_ident_is_a_dead_link(qapp):
@@ -1296,64 +759,12 @@ def test_ring_page_is_addressable(qapp):
         window.close()
 
 
-def test_ring_page_shows_bearer_timeline_trend_and_errand(qapp):
-    from arda_sim.ring import RING_TRANSFERRED_EVENT, RingTransfer
-
-    window = build_window("fellowship")  # the Ring seeded with Bilbo
-    try:
-        # Advance a few ticks so the corruption/pull trend accrues samples.
-        for _ in range(3):
-            snap, evs = window._playback.advance()
-            window._on_tick_advanced(snap, evs)
-        ring = window._ring_in(window._latest_snapshot)
-        seed_bearer_id = ring.bearer_history[0]
-
-        # A second bearer, acquired by gift — a transfer event drives the timeline.
-        other = next(
-            e
-            for eid, e in window._latest_snapshot.entities.items()
-            if e.kind == "character" and eid != seed_bearer_id
-        )
-        window._events.append(
-            Event(
-                id=99999,
-                year=window._display_year,
-                type=RING_TRANSFERRED_EVENT,
-                subject_ids=[ring.id, seed_bearer_id, other.id],
-                payload={
-                    "mode": RingTransfer.GIFT.value,
-                    "from_bearer_id": seed_bearer_id,
-                    "to_bearer_id": other.id,
-                },
-            )
-        )
-        # An errand afoot: bound for a named site, drawn as a link.
-        goal = window._grid.sites[0]
-        ring.goal_site_id = goal.id
-        ring.path = [[ring.col + 1, ring.row]]
-
-        html = window.describe_ring(ring)
-        plain = html  # assertions target the raw HTML (links + glyphs)
-
-        # Bearer timeline: the second bearer, its acquisition mode, linked out.
-        assert "Bearers".upper() in plain.upper()
-        assert "codex://character/%d" % other.id in plain and "via gift" in plain
-        assert "present" in plain  # the current bearer's open-ended stint
-        # Trend: a sparkline block glyph over the accrued series.
-        assert "Trend".upper() in plain.upper()
-        assert any(block in plain for block in "▁▂▃▄▅▆▇█")
-        # Errand: the goal site named and linked.
-        assert "codex://site/%d" % goal.id in plain and goal.name in plain
-    finally:
-        window.close()
-
-
 def test_ring_errand_path_overlay_draws_and_clears(qapp):
     window = build_window("fellowship")
     try:
         snap, evs = window._playback.advance()
         window._on_tick_advanced(snap, evs)
-        ring = window._ring_in(window._latest_snapshot)
+        ring = the_ring(window._latest_snapshot)
         assert window._map._ring_path_item is None  # no errand at seed → no trail
 
         ring.path = [[ring.col + 1, ring.row], [ring.col + 2, ring.row]]
@@ -1363,22 +774,6 @@ def test_ring_errand_path_overlay_draws_and_clears(qapp):
         ring.path = []  # errand ended
         window._map.refresh_ring(ring)
         assert window._map._ring_path_item is None  # the trail is cleared
-    finally:
-        window.close()
-
-
-def test_ring_page_errand_and_trend_absent_when_idle(qapp):
-    window = build_window("fellowship")
-    try:
-        snap, evs = window._playback.advance()
-        window._on_tick_advanced(snap, evs)  # a single sample: no trend line yet
-        ring = window._ring_in(window._latest_snapshot)
-        ring.goal_site_id = None  # no errand
-        html = window.describe_ring(ring)
-        assert "ERRAND" not in html.upper()  # omitted, not shown empty
-        assert "TREND" not in html.upper()  # one sample can't trace a line
-        # The founding bearer still shows, held to the present.
-        assert "BEARERS" in html.upper() and "present" in html
     finally:
         window.close()
 
