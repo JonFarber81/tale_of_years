@@ -116,6 +116,34 @@ def tab_strip(tabs: Iterable[Tuple[str, str, bool]]) -> str:
     )
 
 
+# The eight block glyphs a sparkline draws with, floor to ceiling.
+_SPARK_BLOCKS = "▁▂▃▄▅▆▇█"
+
+
+def sparkline(values: Iterable[float], width: int = 40) -> str:
+    """A compact inline trend of a numeric series as block glyphs (the Ring page).
+
+    Auto-scaled to the series' own min/max so the *shape* reads even when the
+    absolute range is narrow — the Ring's corruption creeps, and a fixed 0..100
+    scale would flatten that creep to a single low bar. A series longer than
+    ``width`` is evenly sampled down to ``width`` points (endpoints preserved); a
+    flat or single-point series renders at the floor, never blank; empty input
+    yields the empty string.
+    """
+    seq = list(values)
+    if not seq:
+        return ""
+    if len(seq) > width:
+        step = (len(seq) - 1) / (width - 1) if width > 1 else 0
+        seq = [seq[round(i * step)] for i in range(width)]
+    lo, hi = min(seq), max(seq)
+    span = hi - lo
+    if span == 0:
+        return _SPARK_BLOCKS[0] * len(seq)
+    top = len(_SPARK_BLOCKS) - 1
+    return "".join(_SPARK_BLOCKS[round((v - lo) / span * top)] for v in seq)
+
+
 def section(title: str) -> str:
     """A small-caps dimmed section header with breathing room above."""
     return (

@@ -10,7 +10,7 @@ from snapshots — never the live world.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional, Tuple
 
 from PySide6.QtCore import QMetaObject, Qt, QThread, Signal
 from PySide6.QtGui import QFontMetrics
@@ -38,7 +38,7 @@ from ..chronicle import AnnalsFilter, pulse_events, show_all_filter
 from ..entities import Event
 from ..factions import FACTION_INTENT_EVENT, Faction, SuccessionRule
 from ..playback import Playback
-from ..ring import Ring, the_ring
+from ..ring import RING_TRANSFERRED_EVENT, Ring, RingTransfer, the_ring
 from ..snapshot import Snapshot
 from ..succession import presumptive_heir
 from ..tiles import UNOWNED, TileGrid
@@ -66,6 +66,7 @@ from .dossier_html import (
     index_table,
     para,
     section,
+    sparkline,
     stat_grid,
     tab_strip,
 )
@@ -86,6 +87,36 @@ _DEFAULT_TPS = 2.0
 
 # The One Ring's dossier accent — the same warm gold as its map marker (ticket 13).
 _RING_ACCENT = "#e9c46a"
+
+class _RingTrendSample(NamedTuple):
+    """One per-tick reading of the Ring's scalars, for the trend sparkline (#23)."""
+
+    tick: int
+    year: int
+    corruption: int
+    pull: int
+
+
+class _BearerStint(NamedTuple):
+    """One span of the bearer timeline (#23): who held the Ring, when, and how it
+    came to them. ``end`` is ``None`` while they still hold it; ``mode`` is
+    ``None`` for the founding bearer, whose acquisition predates any transfer."""
+
+    bearer_id: int
+    start: int
+    end: Optional[int]
+    mode: Optional[str]
+
+
+# Human-readable phrasing for each transfer mode, for the bearer timeline (#23).
+# Keyed by the RingTransfer value; an unmapped mode falls back to its raw value.
+_TRANSFER_LABELS = {
+    RingTransfer.INHERITANCE.value: "inheritance",
+    RingTransfer.GIFT.value: "gift",
+    RingTransfer.THEFT.value: "theft",
+    RingTransfer.FOUND.value: "finding",
+    RingTransfer.WAR_CAPTURE.value: "war-capture",
+}
 
 # Dynasty-view node badges (#21): a warm gold marks the seated ruler, the
 # dynasty purple the presumptive heir — read against the tree's linked nodes.
@@ -122,6 +153,13 @@ class MainWindow(QMainWindow):
         # inspection reads from snapshots and the feed, never the live world.
         self._latest_snapshot: Optional[Snapshot] = None
         self._events: List[Event] = []
+        # Per-tick trace of the Ring's corruption/pull — snapshots carry only the
+        # current scalars, so the Ring page's sparkline reads from a series the
+        # window accumulates as time advances (like the event feed). Each sample
+        # a _RingTrendSample per tick; appended only on a forward advance so a
+        # scrub-restore never duplicates or reorders it (issue #23).
+        self._ring_trend: List[_RingTrendSample] = []
+        self._ring_trend_tick = -1
         self._display_year = START_YEAR - 1
         self._syncing_slider = False
         # The frontier as last reported by the worker, in absolute ticks (never
@@ -280,6 +318,7 @@ class MainWindow(QMainWindow):
             self._events.extend(events)
             self._fire_pulses(events)
             self._fire_battle_markers(snapshot, events)
+        self._accumulate_ring_trend(snapshot)
         self._map.refresh_armies(self._armies_in(snapshot))
         self._map.refresh_ring(self._ring_in(snapshot))  # keep the Ring findable (ticket 13)
         # Follow site kind/tier churn (founded/grown/razed, ticket 04). Cheap: the
@@ -991,8 +1030,12 @@ class MainWindow(QMainWindow):
         return None
 
     def describe_ring(self, ring: Ring) -> str:
-        """The One Ring dossier (HTML): where it is, its scalars, and its full
-        transfer/bearer journey — inspectable from the tile it rests on."""
+        """The One Ring dossier (HTML): where it is, its scalars, and its journey —
+        a bearer timeline, a corruption/pull trend, and any current errand.
+
+        The journey view (issue #23): the raw scalars alone hid the story the sim
+        tracks, so the page adds a bearer timeline (from the transfer feed), a
+        sparkline over the accumulated trend, and a linked errand target."""
         if ring.borne and self._latest_snapshot is not None:
             bearer = self._latest_snapshot.entity(ring.bearer_id)
             possession = f"borne by {bearer.name}" if bearer is not None else "borne"
@@ -1010,27 +1053,134 @@ class MainWindow(QMainWindow):
                 ]
             ),
         ]
-        journey = self._ring_journey(ring)
-        if journey:
-            parts.append(section("Journey"))
-            parts.append(para("<br>".join(journey)))
+        parts.extend(self._ring_errand(ring))
+        parts.extend(self._ring_trend_section())
+        parts.extend(self._ring_bearer_timeline(ring))
         return "".join(parts)
 
-    def _ring_journey(self, ring: Ring) -> List[str]:
-        """The Ring's transfer/bearer history as dossier lines (oldest first).
+    def _ring_errand(self, ring: Ring) -> List[str]:
+        """The Ring's current errand, if any: the goal site named and linked.
 
-        Read off the accumulated feed (never the live world), capped at the
-        displayed year so a scrub reads the journey only as far as it had gone.
-        """
-        events = sorted(
+        Deliberate movement toward a goal (``goal_site_id``/``path``); with no
+        errand afoot the section is omitted rather than shown empty."""
+        if ring.goal_site_id is None:
+            return []
+        site = self._grid.site_by_id(ring.goal_site_id)
+        target = (
+            self._codex_link("site", site.id, site.name)
+            if site is not None
+            else "an unknown place"
+        )
+        return [section("Errand"), para(f"Bound for {target}.")]
+
+    def _ring_trend_section(self) -> List[str]:
+        """A corruption/pull sparkline over the accumulated per-tick trend.
+
+        Reads the window's ``_ring_trend`` series (never the live world), capped
+        at the displayed year so a scrub traces the Ring only as far as time had
+        gone. Needs at least two samples to trace a line."""
+        samples = [s for s in self._ring_trend if s.year <= self._display_year]
+        if len(samples) < 2:
+            return []
+        corruption = [s.corruption for s in samples]
+        pull = [s.pull for s in samples]
+        rows = stat_grid(
+            [
+                ("Corruption", f"{sparkline(corruption)}  {corruption[0]} → {corruption[-1]}"),
+                ("Pull", f"{sparkline(pull)}  {pull[0]} → {pull[-1]}"),
+            ]
+        )
+        return [section("Trend"), rows]
+
+    def _ring_bearer_timeline(self, ring: Ring) -> List[str]:
+        """The ordered roll of everyone who has borne the Ring — each with the
+        years they held it and the mode by which it came to them.
+
+        Reconstructed from the accumulated ``ring_transferred`` feed (its payload
+        carries the mode and both ends of every handover), capped at the displayed
+        year. ``bearer_history`` names only *who*, not when or how, so the timeline
+        is built from the events, not that list; the list still seeds the founding
+        bearer, whose acquisition predates play and fires no transfer event."""
+        stints = self._ring_stints(ring)
+        if not stints:
+            return []
+        lines = [self._bearer_stint_line(stint) for stint in stints]
+        return [section("Bearers"), para("<br>".join(lines))]
+
+    def _ring_stints(self, ring: Ring) -> List[_BearerStint]:
+        """The bearer stints, oldest-first (see :class:`_BearerStint`).
+
+        An interval where the Ring lay unborne opens no stint — it simply ends
+        the prior bearer's."""
+        transfers = sorted(
             (
                 ev
                 for ev in self._events
-                if ring.id in ev.subject_ids and ev.year <= self._display_year
+                if ev.type == RING_TRANSFERRED_EVENT
+                and ring.id in ev.subject_ids
+                and ev.year <= self._display_year
             ),
             key=lambda ev: (ev.year, ev.id),
         )
-        return [f"TA {ev.year}: {esc(ev.text or ev.type)}" for ev in events]
+        stints: List[_BearerStint] = []
+        open_bearer: Optional[int] = None
+        open_start = ring.created_year
+        open_mode: Optional[str] = None
+        if ring.bearer_history:
+            open_bearer = ring.bearer_history[0]
+        for ev in transfers:
+            if open_bearer is not None:
+                stints.append(_BearerStint(open_bearer, open_start, ev.year, open_mode))
+                open_bearer = None
+            to_bearer = ev.payload.get("to_bearer_id")
+            if to_bearer is not None:
+                open_bearer, open_start, open_mode = (
+                    int(to_bearer),
+                    ev.year,
+                    ev.payload.get("mode"),
+                )
+        if open_bearer is not None:
+            stints.append(_BearerStint(open_bearer, open_start, None, open_mode))
+        return stints
+
+    def _bearer_stint_line(self, stint: _BearerStint) -> str:
+        """One bearer-timeline row: the span, the linked bearer, the transfer mode."""
+        span = (
+            f"TA {stint.start}–{stint.end}"
+            if stint.end is not None
+            else f"TA {stint.start}–present"
+        )
+        bearer = (
+            self._latest_snapshot.entity(stint.bearer_id)
+            if self._latest_snapshot is not None
+            else None
+        )
+        who = (
+            self._codex_link("character", stint.bearer_id, bearer.name)
+            if bearer is not None
+            else "an unknown bearer"
+        )
+        via = (
+            f", via {esc(_TRANSFER_LABELS.get(stint.mode, stint.mode))}"
+            if stint.mode
+            else ""
+        )
+        return f"{span} — {who}{via}"
+
+    def _accumulate_ring_trend(self, snapshot: Snapshot) -> None:
+        """Append the Ring's current corruption/pull for a forward advance only.
+
+        Keyed off the tick so a scrub-restore (which replays an earlier, already
+        recorded tick) never duplicates or reorders the trend series."""
+        if snapshot.tick <= self._ring_trend_tick:
+            return
+        ring = self._ring_in(snapshot)
+        if ring is None:
+            return
+        self._ring_trend_tick = snapshot.tick
+        self._ring_trend.append(
+            _RingTrendSample(snapshot.tick, snapshot.year, ring.corruption, ring.pull)
+        )
 
     def describe_army(self, army: Army) -> str:
         """A host-subject dossier (HTML): strength first, siege when investing,
